@@ -1,0 +1,88 @@
+# Builds, tests, signs and packages Aether for a version tag (v1.2.0, v1.2.1 …) and prepares a DRAFT GitHub release.
+# Nothing is published automatically: open the draft on GitHub, check it, and press "Publish release". Only published,
+# non-prerelease releases are offered by Settings ▸ Updates.
+#
+# Repository secrets (Settings ▸ Secrets and variables ▸ Actions), see SIGNING.md:
+#   AETHER_KEYSTORE_B64       base64 of the release keystore (.jks)
+#   AETHER_KEYSTORE_PASSWORD  keystore password
+#   AETHER_KEY_ALIAS          key alias
+#   AETHER_KEY_PASSWORD       key password
+# Repository variable:
+#   AETHER_SIGNER_SHA256      SHA-256 of the release certificate; the build fails if the APK is signed with anything else
+name: Release
+
+on:
+  push:
+    tags: ["v*"]
+  workflow_dispatch:
+
+permissions:
+  contents: write
+
+jobs:
+  release:
+    runs-on: ubuntu-latest
+    timeout-minutes: 60
+    steps:
+      - uses: actions/checkout@v4
+
+      - uses: actions/setup-java@v4
+        with:
+          distribution: temurin
+          java-version: "21"
+
+      - uses: android-actions/setup-android@v3
+
+      - name: Android SDK packages
+        run: sdkmanager "platforms;android-36" "build-tools;36.0.0" "platform-tools"
+
+      - name: Tag matches versionName
+        if: startsWith(github.ref, 'refs/tags/v')
+        run: |
+          VERSION=$(sed -n 's/.*versionName = "\(.*\)".*/\1/p' app/build.gradle.kts | head -1)
+          [ "v$VERSION" = "${GITHUB_REF_NAME}" ] || { echo "Tag ${GITHUB_REF_NAME} doesn't match versionName $VERSION"; exit 1; }
+
+      - name: Release keystore
+        env:
+          KEYSTORE_B64: ${{ secrets.AETHER_KEYSTORE_B64 }}
+        run: |
+          [ -n "$KEYSTORE_B64" ] || { echo "AETHER_KEYSTORE_B64 is not set: refusing to build an unsigned or debug-signed release"; exit 1; }
+          echo "$KEYSTORE_B64" | base64 -d > "$RUNNER_TEMP/aether-release.jks"
+          echo "AETHER_KEYSTORE=$RUNNER_TEMP/aether-release.jks" >> "$GITHUB_ENV"
+
+      - name: Unit and UI tests
+        run: ./gradlew --no-daemon :app:testDebugUnitTest
+
+      - name: Build release APK
+        env:
+          AETHER_KEYSTORE_PASSWORD: ${{ secrets.AETHER_KEYSTORE_PASSWORD }}
+          AETHER_KEY_ALIAS: ${{ secrets.AETHER_KEY_ALIAS }}
+          AETHER_KEY_PASSWORD: ${{ secrets.AETHER_KEY_PASSWORD }}
+        run: ./gradlew --no-daemon :app:assembleRelease
+
+      - name: Package APK, update metadata and checksums
+        env:
+          EXPECTED_SIGNER: ${{ vars.AETHER_SIGNER_SHA256 }}
+        run: |
+          [ -n "$EXPECTED_SIGNER" ] || { echo "Set the repository variable AETHER_SIGNER_SHA256 (see SIGNING.md)"; exit 1; }
+          VERSION=$(sed -n 's/.*versionName = "\(.*\)".*/\1/p' app/build.gradle.kts | head -1)
+          mkdir -p dist
+          cp app/build/outputs/apk/release/app-release.apk "dist/AetherTV-$VERSION.apk"
+          python3 tools/make_update_metadata.py "dist/AetherTV-$VERSION.apk" dist/aether-update.json \
+            --build-tools "$ANDROID_HOME/build-tools/36.0.0" --expect-signer "$EXPECTED_SIGNER"
+          (cd dist && sha256sum "AetherTV-$VERSION.apk" aether-update.json > SHA256SUMS)
+          rm -f "$RUNNER_TEMP/aether-release.jks"
+
+      - uses: actions/upload-artifact@v4
+        with:
+          name: aether-release
+          path: dist/
+
+      - name: Draft release (not published)
+        if: startsWith(github.ref, 'refs/tags/v')
+        env:
+          GH_TOKEN: ${{ github.token }}
+        run: |
+          VERSION=${GITHUB_REF_NAME#v}
+          NOTES=$(awk -v v="## $VERSION" '$0 ~ "^## " {p = index($0, v) == 1} p' CHANGELOG.md | tail -n +2)
+          gh release create "$GITHUB_REF_NAME" dist/* --draft --title "Aether TV $VERSION" --notes "${NOTES:-Aether TV $VERSION}"

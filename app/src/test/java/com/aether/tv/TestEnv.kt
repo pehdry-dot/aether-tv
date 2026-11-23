@@ -129,7 +129,8 @@ class TestEnv(val apps: List<InstalledApp> = DemoApps.installed()) {
     val devices = DeviceRepository(db, inputs, scanner, launcher)
     val providerStore = ProviderStore(secrets)
     val media = MediaRepository(MediaSessionProvider(context), com.aether.tv.data.media.TvWatchNextProvider(context), PlexProvider(providerStore, launcher), JellyfinProvider(providerStore, launcher), KodiProvider(providerStore, launcher))
-    val backup = BackupManager(context, db, settings)
+    val assets = com.aether.tv.data.assets.AssetStore(context, db, settings)
+    val backup = BackupManager(context, db, settings, assets)
 
     /** Weather with a fixed reading: tests never touch the network. */
     val weather = com.aether.tv.data.weather.WeatherRepository(object : com.aether.tv.data.weather.WeatherSource {
@@ -137,7 +138,6 @@ class TestEnv(val apps: List<InstalledApp> = DemoApps.installed()) {
         override suspend fun current(place: com.aether.tv.data.weather.Place, fahrenheit: Boolean) =
             com.aether.tv.data.weather.Conditions(if (fahrenheit) 57.0 else 14.0, 3, isDay = true)
     })
-    val assets = com.aether.tv.data.assets.AssetStore(context, db, settings)
     val installer = com.aether.tv.platform.ApkInstaller(context)
     val updates = com.aether.tv.data.update.UpdateManager(context, settings, installer).also { it.apiBase = "http://127.0.0.1:1" }
     fun viewModel() = LauncherViewModel(context, profiles, settings, appRepo, favorites, devices, media, db, NetworkMonitor(context), shortcuts, platform, inputs, launcher, backup, weather, assets, updates, installer)

@@ -505,14 +505,20 @@ private fun LazyListScope.profiles(state: LauncherUiState, vm: LauncherViewModel
 // ------------------------------------------------------------------------------------------------ Advanced
 private fun LazyListScope.advanced(state: LauncherUiState, vm: LauncherViewModel, first: FocusRequester) {
     item("g1") { GroupLabel("Backup & restore") }
-    item("export") { OptionRow("Back up to TV storage", { vm.exportBackup() }, icon = AetherIcons.Download, detail = "Profiles, settings, favorites and devices (no passwords)", focusRequester = first) }
+    item("export") { OptionRow("Back up to TV storage", { vm.exportBackup() }, icon = AetherIcons.Download, detail = "Profiles, settings, favorites, devices and their pictures (no passwords)", focusRequester = first) }
     item("exportPick") { BackupPickerRows(vm) }
     item("restore") {
         OptionRow("Restore a backup from TV storage", {
             val files = vm.backup.listBackups()
             if (files.isEmpty()) vm.show(Overlay.Message("No backups found", "Backups are stored in:\n${vm.backup.backupDir.path}\n\nCopy a backup there with adb push, then try again."))
-            else vm.show(Overlay.Choice("Restore which backup?", files.map { it.name }, 0) { i -> vm.show(Overlay.Confirm("Restore ${files[i].name}?", "This replaces all current profiles, favorites, devices and settings.", "Restore") { vm.restoreBackup(files[i]) }) })
+            else vm.show(Overlay.Choice("Restore which backup?", files.map { "${it.name} • ${it.length() / 1024} KB" }, 0) { i ->
+                vm.show(Overlay.Confirm("Restore ${files[i].name}?", "The backup is checked first; if it's damaged nothing changes. Then it replaces all profiles, favorites, devices, settings and pictures. Your current data is kept so you can undo.", "Restore") { vm.restoreBackup(files[i]) })
+            })
         }, icon = AetherIcons.Upload)
+    }
+    item("undoRestore") {
+        OptionRow("Undo the last restore", { vm.show(Overlay.Confirm("Undo the last restore?", "Puts back the profiles, settings and pictures you had just before the last restore.", "Undo") { vm.undoRestore() }) },
+            icon = AetherIcons.RotateCcw, enabled = remember { vm.backup.preRestoreBackup.exists() }, detail = "Available after a restore")
     }
     item("g2") { GroupLabel("Permissions") }
     item("perm") {
@@ -539,13 +545,13 @@ private fun LazyListScope.advanced(state: LauncherUiState, vm: LauncherViewModel
 @Composable
 private fun BackupPickerRows(vm: LauncherViewModel) {
     val context = LocalContext.current
-    val create = rememberLauncherForActivityResult(ActivityResultContracts.CreateDocument("application/json")) { uri -> uri?.let { vm.exportBackupTo(it) } }
-    val open = rememberLauncherForActivityResult(ActivityResultContracts.OpenDocument()) { uri -> uri?.let { u -> vm.show(Overlay.Confirm("Restore this backup?", "This replaces all current profiles, favorites, devices and settings.", "Restore") { vm.restoreBackupFrom(u) }) } }
-    val hasPicker = remember { Intent(Intent.ACTION_CREATE_DOCUMENT).addCategory(Intent.CATEGORY_OPENABLE).setType("application/json").resolveActivity(context.packageManager) != null }
+    val create = rememberLauncherForActivityResult(ActivityResultContracts.CreateDocument("application/zip")) { uri -> uri?.let { vm.exportBackupTo(it) } }
+    val open = rememberLauncherForActivityResult(ActivityResultContracts.OpenDocument()) { uri -> uri?.let { u -> vm.show(Overlay.Confirm("Restore this backup?", "The backup is checked first; if it's damaged nothing changes. Then it replaces all profiles, favorites, devices, settings and pictures.", "Restore") { vm.restoreBackupFrom(u) }) } }
+    val hasPicker = remember { Intent(Intent.ACTION_CREATE_DOCUMENT).addCategory(Intent.CATEGORY_OPENABLE).setType("application/zip").resolveActivity(context.packageManager) != null }
     if (hasPicker) {
         androidx.compose.foundation.layout.Column(verticalArrangement = Arrangement.spacedBy(6.dp)) {
-            OptionRow("Export backup to a file…", { create.launch("aether-backup.json") }, icon = AetherIcons.Folder)
-            OptionRow("Restore from a file…", { open.launch(arrayOf("application/json", "text/plain", "*/*")) }, icon = AetherIcons.Folder)
+            OptionRow("Export backup to a file…", { create.launch("aether-backup.zip") }, icon = AetherIcons.Folder, detail = "For example to a USB drive: it survives reinstalling Aether")
+            OptionRow("Restore from a file…", { open.launch(arrayOf("application/zip", "application/json", "*/*")) }, icon = AetherIcons.Folder)
         }
     }
 }

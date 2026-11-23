@@ -146,6 +146,8 @@ class LauncherViewModel @Inject constructor(
         }
         // A wallpaper preview can't be open at start: whatever is left in the preview folder was abandoned.
         viewModelScope.launch(Dispatchers.IO) { assets.clearPreviews() }
+        // A restore that was interrupted (power cut, crash) is completed from its private copy.
+        viewModelScope.launch { backup.finishInterruptedRestore()?.let { afterRestore(it, "Restore completed") } }
         viewModelScope.launch {
             profilesRepo.ensureDefault()
             deviceRepo.seedDefaults()
@@ -493,7 +495,7 @@ class LauncherViewModel @Inject constructor(
     // ---------- backup ----------
     fun exportBackup() = viewModelScope.launch {
         runCatching { backup.exportToFolder() }
-            .onSuccess { show(Overlay.Message("Backup saved", "Saved to ${it.path}\n\nCopy it off the TV with:\nadb pull ${it.path}")) }
+            .onSuccess { show(Overlay.Message("Backup saved", "Profiles, settings, favorites, devices and their pictures (no passwords) in:\n${it.path}\n\nThis folder is removed if Aether is uninstalled. Copy it off the TV with:\nadb pull ${it.path}")) }
             .onFailure { show(Overlay.Message("Backup failed", it.message ?: "Unknown error")) }
     }
     fun exportBackupTo(uri: Uri) = viewModelScope.launch {
@@ -501,13 +503,29 @@ class LauncherViewModel @Inject constructor(
             .onSuccess { notice("Backup saved") }.onFailure { show(Overlay.Message("Backup failed", it.message ?: "Unknown error")) }
     }
     fun restoreBackup(file: File) = viewModelScope.launch {
-        runCatching { backup.restore(file.readText()) }.onSuccess { AppIconLoader.invalidate(); notice("Restored ${file.name}") }
-            .onFailure { show(Overlay.Message("Restore failed", it.message ?: "The file isn't a valid Aether backup.")) }
+        restoreWith(file.name) { backup.restore(file) }
     }
     fun restoreBackupFrom(uri: Uri) = viewModelScope.launch {
-        runCatching { backup.restore(context.contentResolver.openInputStream(uri) ?: error("Can't read file")) }
-            .onSuccess { AppIconLoader.invalidate(); notice("Backup restored") }
-            .onFailure { show(Overlay.Message("Restore failed", it.message ?: "The file isn't a valid Aether backup.")) }
+        restoreWith("the backup") { backup.restore(context.contentResolver.openInputStream(uri) ?: throw com.aether.tv.data.backup.BackupException("The file couldn't be opened.")) }
+    }
+    /** Puts back the data as it was just before the last restore. */
+    fun undoRestore() = viewModelScope.launch {
+        if (!backup.preRestoreBackup.exists()) return@launch show(Overlay.Message("Nothing to undo", "There's no restore to undo on this TV."))
+        restoreWith("the data from before the restore") { backup.restore(backup.preRestoreBackup.copyTo(File(context.cacheDir, "undo.zip"), overwrite = true)) }
+    }
+
+    private suspend fun restoreWith(name: String, run: suspend () -> com.aether.tv.data.backup.RestoreReport) {
+        runCatching { run() }
+            .onSuccess { r -> afterRestore(r, "Restored $name") }
+            .onFailure { show(Overlay.Message("Restore failed — nothing was changed", it.message ?: "The file isn't a valid Aether backup.")) }
+    }
+
+    private suspend fun afterRestore(r: com.aether.tv.data.backup.RestoreReport, title: String) {
+        profilesRepo.ensureDefault()
+        AppIconLoader.invalidate()
+        val missing = if (r.missingPictures.isEmpty()) "" else "\n\n${r.missingPictures.size} picture(s) weren't in the backup and aren't on this TV; choose them again: ${r.missingPictures.take(5).joinToString()}"
+        show(Overlay.Message(title, "${r.profiles} profile(s), ${r.favorites} favorite(s), ${r.devices} device(s) and ${r.pictures} picture(s) restored.$missing" +
+            if (r.recovered) "\n\nThe restore had been interrupted; it has now been completed." else ""))
     }
     fun resetProfileSettings() = viewModelScope.launch { settingsRepo.replace(state.value.profileId, LauncherSettings()); notice("Settings reset to defaults") }
 
