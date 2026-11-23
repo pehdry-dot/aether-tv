@@ -227,7 +227,8 @@ fun ProviderSetupSheet(o: Overlay.ProviderSetup, state: LauncherUiState, vm: Lau
     var user by remember { mutableStateOf("") }
     var pass by remember { mutableStateOf("") }
 
-    fun done(msg: String) { vm.dismissOverlay(); vm.notice(msg); vm.refreshMedia() }
+    // A new sign-in or server may be a different account: drop this source's old cards before reading it again.
+    fun done(msg: String) { vm.dismissOverlay(); vm.notice(msg); vm.mediaRepo.invalidate(provider.id) }
     fun fail(t: Throwable) { busy = false; vm.notice("Couldn't connect: ${t.message ?: t.javaClass.simpleName}") }
     val askTvListings = androidx.activity.compose.rememberLauncherForActivityResult(androidx.activity.result.contract.ActivityResultContracts.RequestPermission()) { ok ->
         if (ok) done("Continue Watching from apps on this TV is on") else vm.notice("TV listings access wasn't allowed")
@@ -250,6 +251,12 @@ fun ProviderSetupSheet(o: Overlay.ProviderSetup, state: LauncherUiState, vm: Lau
         AText("Status: ${status.short()}" + ((status as? ProviderStatus.Connected)?.detail?.let { " — $it" } ?: (status as? ProviderStatus.Error)?.message?.let { " — $it" } ?: ""),
             Aether.type.caption, color = Aether.colors.textSecondary, maxLines = 3)
         AText("Provides: " + provider.capabilities.joinToString { it.label.lowercase() }, Aether.type.caption, color = Aether.colors.textTertiary, maxLines = 2)
+        state.media.sources[provider.id]?.let { src ->
+            AText(com.aether.tv.ui.settings.sourceSummary(src, System.currentTimeMillis()), Aether.type.caption, color = Aether.colors.textSecondary, maxLines = 3)
+        }
+        if (provider !is MediaSessionProvider && provider !is com.aether.tv.data.media.TvWatchNextProvider) {
+            AText("Shared by every profile on this TV.", Aether.type.caption, color = Aether.colors.textTertiary)
+        }
         Spacer(Modifier.height(12.dp))
         val l = link
         if (l != null) {
@@ -308,11 +315,15 @@ fun ProviderSetupSheet(o: Overlay.ProviderSetup, state: LauncherUiState, vm: Lau
                     }, icon = AetherIcons.Check, detail = "In Kodi: Settings ▸ Services ▸ Control ▸ Allow remote control via HTTP", minHeight = 38.dp) }
                 }
             }
+            item {
+                OptionRow("Refresh now", { vm.mediaRepo.refreshSource(provider.id); vm.notice("Refreshing ${provider.displayName}…") }, icon = AetherIcons.RefreshCw,
+                    detail = "Reads this source again", minHeight = 38.dp)
+            }
             if (provider !is MediaSessionProvider && status !is ProviderStatus.NotConfigured) item {
                 OptionRow("Disconnect", {
                     vm.show(Overlay.Confirm("Disconnect ${provider.displayName}?", "Removes the stored server and credentials from this TV.", "Disconnect") {
                         when (provider) { is PlexProvider -> provider.disconnect(); is JellyfinProvider -> provider.disconnect(); is KodiProvider -> provider.disconnect() }
-                        vm.refreshMedia()
+                        vm.mediaRepo.invalidate(provider.id)
                     })
                 }, icon = AetherIcons.Trash)
             }

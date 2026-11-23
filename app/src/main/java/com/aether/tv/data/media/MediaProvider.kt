@@ -59,3 +59,15 @@ interface MediaProvider {
     suspend fun search(query: String, limit: Int): List<MediaItem> = emptyList()
     suspend fun resume(item: MediaItem): ResumeResult
 }
+
+/** Timestamps as media servers write them, to epoch ms (null when absent or unreadable). */
+object MediaTimes {
+    /** Jellyfin: "2026-11-20T21:13:44.1234567Z" (UTC). */
+    fun iso(s: String?): Long? = s?.takeIf { it.length >= 19 }?.let {
+        runCatching { java.text.SimpleDateFormat("yyyy-MM-dd'T'HH:mm:ss", java.util.Locale.US).apply { timeZone = java.util.TimeZone.getTimeZone("UTC") }.parse(it.substring(0, 19))?.time }.getOrNull()
+    }
+    /** Kodi: "2026-11-20 21:13:44" in the TV's time zone; empty when never played. */
+    fun kodi(s: String?): Long? = s?.takeIf { it.length >= 19 }?.let {
+        runCatching { java.text.SimpleDateFormat("yyyy-MM-dd HH:mm:ss", java.util.Locale.US).parse(it.substring(0, 19))?.time }.getOrNull()
+    }
+}

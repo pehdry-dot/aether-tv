@@ -19,6 +19,8 @@
     <uses-permission android:name="android.permission.QUERY_ALL_PACKAGES" tools:ignore="QueryAllPackagesPermission" />
     <!-- Opens the system uninstall dialog for an app the user chooses. -->
     <uses-permission android:name="android.permission.REQUEST_DELETE_PACKAGES" />
+    <!-- Settings ▸ Updates: hands Aether's own verified update to Android's installer (you confirm on screen). -->
+    <uses-permission android:name="android.permission.REQUEST_INSTALL_PACKAGES" />
     <!-- Optional "open Aether after boot". Activity starts from the receiver need overlay permission on Android 10+. -->
     <uses-permission android:name="android.permission.RECEIVE_BOOT_COMPLETED" />
     <!-- Continue Watching from apps on this TV (Nuvio, Netflix …): Android TV's Watch Next list and app channels. -->

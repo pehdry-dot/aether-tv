@@ -47,6 +47,12 @@ class SettingsRepository @Inject constructor(private val store: DataStore<Prefer
     suspend fun setFlag(name: String, value: Boolean) { store.edit { it[booleanPreferencesKey("flag_$name")] = value } }
     fun observeFlag(name: String): Flow<Boolean> = store.data.map { it[booleanPreferencesKey("flag_$name")] ?: false }.distinctUntilChanged()
 
+    /** Device-wide values (not per profile): update checks, pending installs. */
+    suspend fun text(name: String): String? = store.data.first()[stringPreferencesKey("value_$name")]
+    suspend fun setText(name: String, value: String?) { store.edit { if (value == null) it.remove(stringPreferencesKey("value_$name")) else it[stringPreferencesKey("value_$name")] = value } }
+    suspend fun number(name: String): Long = store.data.first()[androidx.datastore.preferences.core.longPreferencesKey("value_$name")] ?: 0L
+    suspend fun setNumber(name: String, value: Long) { store.edit { it[androidx.datastore.preferences.core.longPreferencesKey("value_$name")] = value } }
+
     companion object {
         fun decode(json: String?): LauncherSettings =
             (if (json.isNullOrBlank()) LauncherSettings()

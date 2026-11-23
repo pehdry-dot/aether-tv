@@ -106,6 +106,9 @@ class JellyfinProvider @Inject constructor(
             subtitle = if (isEp) "S${m["ParentIndexNumber"].long ?: 0} E${m["IndexNumber"].long ?: 0} • ${m["Name"].str.orEmpty()}" else m["ProductionYear"].long?.toString(),
             artworkUrl = art, progress = pct?.let { (it / 100.0).toFloat().coerceIn(0f, 1f) },
             durationMs = m["RunTimeTicks"].long?.div(10_000), kind = if (isEp) MediaKind.Episode else MediaKind.Movie,
+            engagedAt = MediaTimes.iso(m["UserData"]["LastPlayedDate"].str),
+            season = if (isEp) m["ParentIndexNumber"].long?.toInt() else null,
+            episode = if (isEp) m["IndexNumber"].long?.toInt() else null,
         )
     }
 

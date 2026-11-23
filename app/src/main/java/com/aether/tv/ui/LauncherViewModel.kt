@@ -73,6 +73,8 @@ class LauncherViewModel @Inject constructor(
     val backup: BackupManager,
     private val weatherRepo: com.aether.tv.data.weather.WeatherRepository,
     val assets: com.aether.tv.data.assets.AssetStore,
+    val updates: com.aether.tv.data.update.UpdateManager,
+    private val updatesInstaller: com.aether.tv.platform.ApkInstaller,
 ) : AndroidViewModel(app) {
 
     private val context get() = getApplication<Application>()
@@ -173,7 +175,10 @@ class LauncherViewModel @Inject constructor(
 
     fun onResume() {
         appRepo.refresh()
-        mediaRepo.refresh()
+        // Continue Watching: read everything now and follow changes while Aether is in front.
+        mediaRepo.startWatching()
+        // Updates: finish an install that waited for "Install unknown apps"; the daily check when it's due.
+        updates.onResume()
         // Weather: on coming to the front, then every 30 minutes while Aether stays there (never in the background).
         weatherLoop?.cancel()
         weatherLoop = viewModelScope.launch {
@@ -186,7 +191,7 @@ class LauncherViewModel @Inject constructor(
         }
     }
 
-    fun onPause() { weatherLoop?.cancel(); weatherLoop = null }
+    fun onPause() { weatherLoop?.cancel(); weatherLoop = null; mediaRepo.stopWatching() }
 
     // ---------- overlays & notices ----------
     fun show(o: Overlay) { _overlays.value = _overlays.value + OverlayEntry(nextOverlayId++, o) }
@@ -409,6 +414,16 @@ class LauncherViewModel @Inject constructor(
         when (val r = mediaRepo.resume(item)) { ResumeResult.Started -> Unit; is ResumeResult.Message -> notice(r.text) }
     }
     fun refreshMedia() = mediaRepo.refresh(force = true)
+
+    // ---------- updates ----------
+    fun installedApp() = updatesInstaller.installed()
+    fun canInstallApps() = updatesInstaller.canInstall()
+    /** Opens "Install unknown apps" for Aether where this TV has a screen for it; otherwise explains the path. */
+    fun openUnknownAppsSettings() {
+        val i = updatesInstaller.unknownSourcesIntent(shortcuts)
+        if (i != null && runCatching { context.startActivity(i) }.isSuccess) return
+        show(Overlay.Message("Install unknown apps", "This TV has no shortcut to that switch. " + com.aether.tv.ui.settings.UNKNOWN_APPS_PATH))
+    }
 
     // ---------- profiles ----------
     fun switchProfile(id: String) = viewModelScope.launch {

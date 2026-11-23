@@ -73,6 +73,7 @@ enum class SettingsCategory(val key: String, val title: String, val subtitle: St
     TvSystem("system", "TV & System", "Storage, remote, picture, network", AetherIcons.Settings),
     Integrations("integrations", "Integrations", "Continue Watching sources", AetherIcons.Link),
     Profiles("profiles", "Profiles", "Users, layouts, syncing", AetherIcons.Users),
+    Updates("updates", "Updates", "Aether version and new releases", AetherIcons.Download),
     Advanced("advanced", "Advanced", "Backup, data, diagnostics", AetherIcons.Code),
     ;
     companion object {

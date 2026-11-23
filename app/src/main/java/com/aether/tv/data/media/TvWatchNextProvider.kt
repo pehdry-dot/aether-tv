@@ -5,6 +5,10 @@ import android.content.Intent
 import android.content.pm.PackageManager
 import android.database.Cursor
 import android.net.Uri
+import android.database.ContentObserver
+import android.os.Handler
+import android.os.Looper
+import java.io.Closeable
 import android.util.Log
 import com.aether.tv.core.model.MediaItem
 import com.aether.tv.core.model.MediaKind
@@ -18,10 +22,13 @@ import javax.inject.Singleton
 /**
  * Continue Watching that apps publish to Android TV itself (Nuvio, Netflix, Prime Video, Plex …), read the way the
  * Android TV home screen reads it:
- * 1. the system **Watch Next** list, newest engagement first;
- * 2. apps' own home-screen channels named "Continue …" (Stremio-style apps such as Nuvio publish one of these, with
- *    progress and a resume link, instead of or as well as Watch Next).
+ * 1. the system **Watch Next** list;
+ * 2. apps' own home-screen channels of things in progress (Nuvio publishes a "Continue Watching" channel, with a
+ *    localized name, as well as Watch Next), and any program that carries a playback position.
  * Needs the TV listings permission. Only what the apps publish is shown: no history is kept by Aether.
+ *
+ * While Aether is in front, [observe] watches all three tables, so a publisher that writes its entry just after it goes
+ * to the background (Nuvio does so when playback stops and again in onStop) shows up on Home without a refresh.
  */
 @Singleton
 class TvWatchNextProvider @Inject constructor(@ApplicationContext private val context: Context) : MediaProvider {
@@ -31,8 +38,8 @@ class TvWatchNextProvider @Inject constructor(@ApplicationContext private val co
     override val capabilities = setOf(MediaCapability.ContinueWatching, MediaCapability.Resume)
     override val appPackage: String? = null
 
-    /** Resume links by item id, from the last read. */
-    private val links = ConcurrentHashMap<String, Pair<String?, String?>>()
+    /** Resume links (link, publishing package) by item id, from the last read. Replaced whole, never cleared midway. */
+    @Volatile private var links: Map<String, Pair<String?, String?>> = emptyMap()
 
     fun hasAccess() = context.checkSelfPermission(PERMISSION) == PackageManager.PERMISSION_GRANTED
 
@@ -40,65 +47,103 @@ class TvWatchNextProvider @Inject constructor(@ApplicationContext private val co
         if (hasAccess()) ProviderStatus.Connected("TV listings access allowed")
         else ProviderStatus.NeedsPermission("Allow TV listings access to show what apps like Nuvio publish")
 
-    override suspend fun continueWatching(limit: Int): List<MediaItem> = withContext(Dispatchers.IO) {
-        if (!hasAccess()) return@withContext emptyList()
-        val watchNext = read(Uri.parse(WATCH_NEXT_URI), WATCH_NEXT_COLUMNS, "wn")
-            .filter { it.watchNextType != TYPE_WATCHLIST }
-            .sortedByDescending { it.engaged }
-        val channels = continueChannels()
-        val fromChannels = channels.flatMap { (cid, _) ->
-            read(Uri.parse("$PREVIEW_URI?channel=$cid"), PREVIEW_COLUMNS, "ch$cid").sortedByDescending { it.weight }
+    /**
+     * Calls [onChange] whenever an app changes its Watch Next entries, channels or channel programs. Register before
+     * the first read, so a write that lands between the two isn't missed. Close the result when Aether leaves the front.
+     */
+    fun observe(onChange: () -> Unit): Closeable {
+        val observer = object : ContentObserver(Handler(Looper.getMainLooper())) {
+            override fun onChange(selfChange: Boolean) = onChange()
+            override fun onChange(selfChange: Boolean, uri: Uri?) = onChange()
         }
-        Log.i(TAG, "continue watching: ${watchNext.size} from Watch Next, ${fromChannels.size} from ${channels.size} channels")
-        val all = (watchNext + fromChannels).distinctBy { it.link ?: (it.pkg + it.item.title) }.take(limit)
-        links.clear()
-        all.forEach { links[it.item.id] = it.link to it.pkg }
-        all.map { it.item }
+        val ok = listOf(WATCH_NEXT_URI, PREVIEW_URI, CHANNELS_URI).count { u ->
+            runCatching { context.contentResolver.registerContentObserver(Uri.parse(u), true, observer) }
+                .onFailure { Log.w(TAG, "can't observe $u: ${it.message}") }.isSuccess
+        }
+        Log.i(TAG, "observing $ok TV provider tables")
+        return Closeable { runCatching { context.contentResolver.unregisterContentObserver(observer) } }
     }
 
-    /** (id, package) of other apps' channels whose name starts with "Continue" (Continue Watching, Continue watching …). */
-    private fun continueChannels(): List<Pair<Long, String>> = runCatching {
-        val out = ArrayList<Pair<Long, String>>()
-        context.contentResolver.query(Uri.parse(CHANNELS_URI), arrayOf("_id", "package_name", "display_name", "browsable"), null, null, null)?.use { c ->
-            while (c.moveToNext()) {
-                val pkg = c.str("package_name") ?: continue
-                val name = c.str("display_name") ?: continue
-                if (pkg == context.packageName || c.str("browsable") == "0") continue
-                if (name.trim().startsWith("continue", ignoreCase = true)) out += c.getLong(c.getColumnIndexOrThrow("_id")) to pkg
+    override suspend fun continueWatching(limit: Int): List<MediaItem> = withContext(Dispatchers.IO) {
+        if (!hasAccess()) return@withContext emptyList()
+        val watchNext = query(Uri.parse(WATCH_NEXT_URI), WATCH_NEXT_COLUMNS, COMMON + "watch_next_type" + "last_engagement_time_utc_millis")
+            .filter { it.watchNextType != TYPE_WATCHLIST }
+            .map { it.toItem("wn") }
+            .sortedByDescending { it.engagedAt ?: 0L }
+        val channels = readChannels()
+        val continueIds = channels.filter { ContinueChannels.isContinue(it.pkg, it.name, it.providerId) }.map { it.id }.toSet()
+        val byId = channels.associateBy { it.id }
+        // One query for every channel's programs, filtered here: Fire OS rejects selection clauses on preview_program.
+        val programs = query(Uri.parse(PREVIEW_URI), PREVIEW_COLUMNS, COMMON + "weight")
+            .filter { p -> p.channelId in continueIds || (p.channelId in byId && p.position >= 1000 && p.duration > 0) }
+            .sortedWith(compareBy<Row> { if (it.channelId in continueIds) 0 else 1 }.thenByDescending { it.weight })
+            .map { it.toItem("ch") }
+        Log.i(TAG, "continue watching: ${watchNext.size} from Watch Next, ${programs.size} from ${continueIds.size} continue channels")
+        val all = (watchNext + programs).take(limit)
+        links = all.associate { it.id to (it.link to it.packageName) }
+        all
+    }
+
+    private data class Channel(val id: Long, val pkg: String, val name: String?, val providerId: String?)
+
+    private fun readChannels(): List<Channel> = runCatching {
+        val out = ArrayList<Channel>()
+        val cols = arrayOf("_id", "package_name", "display_name", "browsable", "internal_provider_id")
+        val c = runCatching { context.contentResolver.query(Uri.parse(CHANNELS_URI), cols, null, null, null) }.getOrNull()
+            ?: context.contentResolver.query(Uri.parse(CHANNELS_URI), cols.copyOf(4).requireNoNulls(), null, null, null)
+        c?.use {
+            while (it.moveToNext()) {
+                val pkg = it.str("package_name") ?: continue
+                if (pkg == context.packageName || it.str("browsable") == "0") continue
+                out += Channel(it.getLong(it.getColumnIndexOrThrow("_id")), pkg, it.str("display_name"), it.str("internal_provider_id"))
             }
         }
         out
-    }.getOrDefault(emptyList())
+    }.onFailure { Log.w(TAG, "can't read channels: ${it.message}") }.getOrDefault(emptyList())
 
-    private class Row(val item: MediaItem, val link: String?, val pkg: String?, val engaged: Long, val weight: Long, val watchNextType: Int)
+    private class Row(
+        val title: String, val pkg: String?, val duration: Long, val position: Long, val type: Int?,
+        val season: String?, val episode: String?, val episodeTitle: String?, val art: String?, val link: String?,
+        val engaged: Long, val weight: Long, val watchNextType: Int, val providerId: String?, val channelId: Long, val rowId: Long,
+    )
 
-    /** Reads only the named columns: a null projection fails on TVs whose provider lacks newer columns. */
-    private fun read(uri: Uri, columns: Array<String>, prefix: String): List<Row> = runCatching {
+    private fun Row.toItem(prefix: String): MediaItem {
+        val kind = when (type) {
+            0 -> MediaKind.Movie
+            1, 2, 3 -> MediaKind.Episode
+            7, 8, 9, 10, 11 -> MediaKind.Music
+            else -> MediaKind.Video
+        }
+        val ep = WatchNextText.episode(season, episode, episodeTitle)
+        val sub = listOfNotNull(ep, WatchNextText.timeLeft(duration, position), appLabel(pkg)).joinToString(" • ").ifBlank { null }
+        return MediaItem(
+            id = WatchNextText.identity(prefix, pkg, providerId, link, title, season, episode, episodeTitle, rowId),
+            providerId = ID, title = title, subtitle = sub, artworkUrl = art,
+            progress = WatchNextText.progress(duration, position), durationMs = duration.takeIf { it > 0 }, kind = kind,
+            packageName = pkg, engagedAt = engaged.takeIf { it > 0 },
+            season = season?.trim()?.toIntOrNull(), episode = episode?.trim()?.toIntOrNull(), link = link,
+        )
+    }
+
+    /**
+     * Reads only the named columns: a null projection fails on TVs whose provider lacks newer columns. If [columns]
+     * includes one this TV's provider doesn't have, [basic] is used instead.
+     */
+    private fun query(uri: Uri, columns: Array<String>, basic: Array<String>): List<Row> = runCatching {
         val out = ArrayList<Row>()
-        context.contentResolver.query(uri, columns, null, null, null)?.use { c ->
+        val cursor = runCatching { context.contentResolver.query(uri, columns, null, null, null) }
+            .recoverCatching { context.contentResolver.query(uri, basic, null, null, null) }.getOrThrow()
+        cursor?.use { c ->
             while (c.moveToNext()) {
                 if (c.str("browsable") == "0") continue
                 val title = c.str("title") ?: continue
-                val pkg = c.str("package_name")
-                val duration = c.num("duration_millis")
-                val position = c.num("last_playback_position_millis")
-                val kind = when (c.str("type")?.toIntOrNull()) {
-                    0 -> MediaKind.Movie
-                    1, 2, 3 -> MediaKind.Episode
-                    7, 8, 9, 10, 11 -> MediaKind.Music
-                    else -> MediaKind.Video
-                }
-                val episode = WatchNextText.episode(c.str("season_display_number"), c.str("episode_display_number"), c.str("episode_title"))
-                val sub = listOfNotNull(episode, WatchNextText.timeLeft(duration, position), appLabel(pkg)).joinToString(" • ").ifBlank { null }
                 out += Row(
-                    MediaItem(
-                        id = "$prefix:${c.num("_id")}", providerId = ID, title = title, subtitle = sub,
-                        artworkUrl = c.str("thumbnail_uri") ?: c.str("poster_art_uri"),
-                        progress = WatchNextText.progress(duration, position),
-                        durationMs = duration.takeIf { it > 0 }, kind = kind,
-                    ),
-                    c.str("intent_uri"), pkg, c.num("last_engagement_time_utc_millis"), c.num("weight"),
-                    c.str("watch_next_type")?.toIntOrNull() ?: -1,
+                    title = title, pkg = c.str("package_name"), duration = c.num("duration_millis"), position = c.num("last_playback_position_millis"),
+                    type = c.str("type")?.toIntOrNull(), season = c.str("season_display_number"), episode = c.str("episode_display_number"),
+                    episodeTitle = c.str("episode_title"), art = c.str("thumbnail_uri") ?: c.str("poster_art_uri"), link = c.str("intent_uri"),
+                    engaged = c.num("last_engagement_time_utc_millis"), weight = c.num("weight"),
+                    watchNextType = c.str("watch_next_type")?.toIntOrNull() ?: -1, providerId = c.str("internal_provider_id"),
+                    channelId = c.num("channel_id"), rowId = c.num("_id"),
                 )
             }
         }
@@ -112,7 +157,8 @@ class TvWatchNextProvider @Inject constructor(@ApplicationContext private val co
     }
 
     override suspend fun resume(item: MediaItem): ResumeResult = withContext(Dispatchers.Main) {
-        val (link, pkg) = links[item.id] ?: return@withContext ResumeResult.Message("That item is no longer listed.")
+        val (link, pkg) = links[item.id] ?: (item.link to item.packageName)
+        if (link == null && pkg == null) return@withContext ResumeResult.Message("That item is no longer listed.")
         val intent = WatchNextText.resumeIntent(link, pkg)
         if (intent != null && runCatching { context.startActivity(intent); true }.getOrDefault(false)) return@withContext ResumeResult.Started
         val launch = pkg?.let { context.packageManager.getLeanbackLaunchIntentForPackage(it) ?: context.packageManager.getLaunchIntentForPackage(it) }
@@ -127,21 +173,59 @@ class TvWatchNextProvider @Inject constructor(@ApplicationContext private val co
         const val ID = "tvwatchnext"
         const val PERMISSION = "android.permission.READ_TV_LISTINGS"
         private const val TAG = "AetherWatchNext"
-        private const val WATCH_NEXT_URI = "content://android.media.tv/watch_next_program"
-        private const val PREVIEW_URI = "content://android.media.tv/preview_program"
-        private const val CHANNELS_URI = "content://android.media.tv/channel"
+        const val WATCH_NEXT_URI = "content://android.media.tv/watch_next_program"
+        const val PREVIEW_URI = "content://android.media.tv/preview_program"
+        const val CHANNELS_URI = "content://android.media.tv/channel"
         private const val TYPE_WATCHLIST = 3
         private val COMMON = arrayOf(
             "_id", "browsable", "title", "episode_title", "package_name", "season_display_number", "episode_display_number",
             "duration_millis", "last_playback_position_millis", "thumbnail_uri", "poster_art_uri", "type", "intent_uri",
         )
-        private val WATCH_NEXT_COLUMNS = COMMON + arrayOf("watch_next_type", "last_engagement_time_utc_millis")
-        private val PREVIEW_COLUMNS = COMMON + "weight"
+        private val WATCH_NEXT_COLUMNS = COMMON + arrayOf("watch_next_type", "last_engagement_time_utc_millis", "internal_provider_id")
+        private val PREVIEW_COLUMNS = COMMON + arrayOf("weight", "channel_id", "internal_provider_id")
+    }
+}
+
+/** Which apps' home-screen channels hold things in progress. Pure (unit-tested). */
+object ContinueChannels {
+    /** Nuvio's TV and Play builds; its channel's internal id is its package name, whatever the channel is called. */
+    val NUVIO_PACKAGES = setOf("com.nuvio.tv", "com.nuvio.app")
+
+    /** "Continue watching" as apps name their channel (Nuvio's 33 translations and common variants). */
+    val NAMES = setOf(
+        "continue watching", "continue", "keep watching", "resume watching", "up next",
+        "continua a guardare", "continuar assistindo", "continuar a ver", "continuar viendo", "continuer à regarder",
+        "fortsæt med at se", "kontynuuj oglądanie", "lanjutkan menonton", "megtekintés folytatása", "nadaljuj z ogledom",
+        "nastavi gledanje", "nastavi gledati", "pokračovat ve sledování", "pokračovať v sledovaní", "seguir viendo",
+        "tiếp tục xem", "tęsti žiūrėjimą", "vazhdo shikimin", "verder kijken", "i̇zlemeye devam et", "izlemeye devam et",
+        "συνέχεια παρακολούθησης", "продовжити перегляд", "продолжить просмотр", "продължи гледането", "המשך צפייה",
+        "متابعة المشاهدة", "দেখা চালিয়ে যান", "தொடர்ந்து பார்க்கவும்", "繼續觀看", "继续观看", "視聴を続ける", "weiterschauen", "weiter ansehen",
+    )
+
+    fun isContinue(pkg: String, displayName: String?, internalProviderId: String?): Boolean {
+        if (pkg in NUVIO_PACKAGES && internalProviderId == pkg) return true
+        val n = displayName?.trim()?.lowercase() ?: return false
+        return n in NAMES || n.startsWith("continue")
     }
 }
 
 /** Pure helpers (unit-tested). */
 object WatchNextText {
+    /**
+     * A listing's identity, stable across rewrites of its row: the publisher's own id for it when there is one (Nuvio's
+     * are per episode, "wn_tt123_s1e2"), else its resume link, else show + season + episode + episode title.
+     */
+    fun identity(prefix: String, pkg: String?, providerId: String?, link: String?, title: String, season: String?, episode: String?, episodeTitle: String?, rowId: Long): String {
+        val app = pkg ?: "?"
+        return when {
+            !providerId.isNullOrBlank() -> "$prefix:$app:id:$providerId"
+            !link.isNullOrBlank() -> "$prefix:$app:link:${link.hashCode().toUInt().toString(36)}"
+            !season.isNullOrBlank() || !episode.isNullOrBlank() || !episodeTitle.isNullOrBlank() ->
+                "$prefix:$app:ep:${title.lowercase()}|${season?.trim()}|${episode?.trim()}|${episodeTitle?.trim()?.lowercase()}"
+            else -> "$prefix:$app:row:$rowId"
+        }
+    }
+
     /** "S2 E5 · The Title", "S2 E5", or just the episode title. */
     fun episode(season: String?, episode: String?, title: String?): String? {
         val se = if (!season.isNullOrBlank() && !episode.isNullOrBlank()) "S${season.trim()} E${episode.trim()}" else null

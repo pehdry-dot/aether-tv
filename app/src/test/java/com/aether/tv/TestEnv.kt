@@ -138,7 +138,9 @@ class TestEnv(val apps: List<InstalledApp> = DemoApps.installed()) {
             com.aether.tv.data.weather.Conditions(if (fahrenheit) 57.0 else 14.0, 3, isDay = true)
     })
     val assets = com.aether.tv.data.assets.AssetStore(context, db, settings)
-    fun viewModel() = LauncherViewModel(context, profiles, settings, appRepo, favorites, devices, media, db, NetworkMonitor(context), shortcuts, platform, inputs, launcher, backup, weather, assets)
+    val installer = com.aether.tv.platform.ApkInstaller(context)
+    val updates = com.aether.tv.data.update.UpdateManager(context, settings, installer).also { it.apiBase = "http://127.0.0.1:1" }
+    fun viewModel() = LauncherViewModel(context, profiles, settings, appRepo, favorites, devices, media, db, NetworkMonitor(context), shortcuts, platform, inputs, launcher, backup, weather, assets, updates, installer)
 
     fun close() = db.close()
 }

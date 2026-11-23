@@ -105,6 +105,9 @@ class PlexProvider @Inject constructor(
             artworkUrl = art?.let { "$base/photo/:/transcode?width=640&height=360&minSize=1&upscale=1&url=${URLEncoder.encode(it, "UTF-8")}&X-Plex-Token=${token.orEmpty()}" },
             progress = if (duration != null && offset != null && duration > 0) (offset.toFloat() / duration).coerceIn(0f, 1f) else null,
             durationMs = duration, kind = if (type == "episode") MediaKind.Episode else MediaKind.Movie,
+            engagedAt = m["lastViewedAt"].long?.times(1000),
+            season = if (type == "episode") m["parentIndex"].long?.toInt() else null,
+            episode = if (type == "episode") m["index"].long?.toInt() else null,
         )
     }
 

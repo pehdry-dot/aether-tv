@@ -232,6 +232,8 @@ private fun LauncherScaffold(state: LauncherUiState, vm: LauncherViewModel, over
             weather = vm.weather.collectAsStateWithLifecycle().value,
             settingsOpen = tab == LauncherTab.Settings,
             settingsRequester = gearRequester,
+            update = vm.updates.notice.collectAsStateWithLifecycle().value,
+            onUpdate = { vm.openSettings(com.aether.tv.ui.settings.SettingsCategory.Updates.key) },
         )
         if (layout.showPageTitle) {
             Spacer(Modifier.height(16.dp))

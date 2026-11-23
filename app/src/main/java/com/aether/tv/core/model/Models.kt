@@ -108,6 +108,7 @@ data class TvInput(
 
 /** A media item supplied by a media provider adapter. Never synthesised. */
 data class MediaItem(
+    /** Stable, episode-level identity within its provider (also the card's key, so focus follows it). */
     val id: String,
     val providerId: String,
     val title: String,
@@ -116,6 +117,16 @@ data class MediaItem(
     val progress: Float?,         // 0..1, only when the provider reports it
     val durationMs: Long? = null,
     val kind: MediaKind = MediaKind.Video,
+    /** App that published it (Watch Next, channels, media sessions). */
+    val packageName: String? = null,
+    /** When the user last watched it (epoch ms), when the source says so. Drives the order on Home. */
+    val engagedAt: Long? = null,
+    val season: Int? = null,
+    val episode: Int? = null,
+    /** A live media session ("Now Playing"), not a resumable listing. */
+    val nowPlaying: Boolean = false,
+    /** The source's resume link, when it has one (deduplication across Watch Next and channels). */
+    val link: String? = null,
 )
 
 enum class MediaKind { Video, Episode, Movie, Music, Live }

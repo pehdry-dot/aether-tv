@@ -70,6 +70,7 @@ fun SettingsDetail(cat: SettingsCategory, state: LauncherUiState, vm: LauncherVi
             SettingsCategory.TvSystem -> tvSystem(state, vm, first)
             SettingsCategory.Integrations -> integrations(state, vm, first)
             SettingsCategory.Profiles -> profiles(state, vm, first)
+            SettingsCategory.Updates -> item("updates") { UpdatesSection(vm, first) }
             SettingsCategory.Advanced -> advanced(state, vm, first)
         }
     }
@@ -418,11 +419,16 @@ private fun LazyListScope.integrations(state: LauncherUiState, vm: LauncherViewM
     item("g1") { GroupLabel("Media sources") }
     state.media.providers.forEachIndexed { _, ps ->
         item("p-${ps.provider.id}") {
+            val src = state.media.sources[ps.provider.id]
+            val now = remember(src) { System.currentTimeMillis() }
             OptionRow(ps.provider.displayName, { vm.show(Overlay.ProviderSetup(ps.provider.id)) }, icon = if (MediaCapability.NowPlaying in ps.provider.capabilities) AetherIcons.CirclePlay else AetherIcons.Server,
-                detail = ps.status.short() + " • " + ps.provider.capabilities.joinToString { it.label.lowercase() }, chevron = true)
+                detail = listOfNotNull(src?.let { sourceSummary(it, now) } ?: ps.status.short(), sourceScope(ps.provider.id)).joinToString("\n"), chevron = true)
         }
     }
-    if (state.media.providers.isEmpty()) item("loading") { OptionRow("Checking sources…", { vm.refreshMedia() }, icon = AetherIcons.RefreshCw) }
+    item("refreshAll") {
+        OptionRow("Refresh Continue Watching", { vm.mediaRepo.refresh(force = true); vm.notice("Refreshing every source…") }, icon = AetherIcons.RefreshCw,
+            detail = "Home also refreshes by itself: apps on this TV as they publish, servers when Aether comes to the front")
+    }
     item("g2") { GroupLabel("Privacy") }
     item("privacy") { OptionRow("No ads, no analytics", {}, icon = AetherIcons.Shield, detail = "Aether sends nothing anywhere except to the media servers you connect and, with Weather on, the weather city to Open-Meteo. Credentials are encrypted with this TV's keystore and excluded from backups.") }
 }
@@ -440,6 +446,29 @@ private fun NotificationAccessRow(state: LauncherUiState, vm: LauncherViewModel,
         icon = AetherIcons.Bell, focusRequester = first, chevron = true,
         detail = if (granted) "Granted" else "Not granted — needed for notifications and Now Playing",
     )
+}
+
+/** One line for Diagnostics: what a source said last, how many items it gave, how fresh they are, and any error. */
+fun sourceSummary(s: com.aether.tv.data.media.SourceState, now: Long): String {
+    fun ago(t: Long): String {
+        val sec = ((now - t) / 1000).coerceAtLeast(0)
+        return when { sec < 60 -> "${sec} s ago"; sec < 3600 -> "${sec / 60} min ago"; sec < 86_400 -> "${sec / 3600} h ago"; else -> "${sec / 86_400} d ago" }
+    }
+    val status = when (val st = s.status) {
+        is com.aether.tv.data.media.ProviderStatus.NotConfigured -> return "Not set up"
+        is com.aether.tv.data.media.ProviderStatus.NeedsPermission -> return "Permission needed: ${st.detail}"
+        is com.aether.tv.data.media.ProviderStatus.Connecting -> if (s.lastAttemptAt == 0L) return "Not read yet" else "Reading…"
+        is com.aether.tv.data.media.ProviderStatus.Connected -> "Allowed"
+        is com.aether.tv.data.media.ProviderStatus.Error -> "Unreachable"
+    }
+    val items = if (s.lastSuccessAt > 0) "${s.items.size} item${if (s.items.size == 1) "" else "s"} • read ${ago(s.lastSuccessAt)}" else "never read successfully"
+    val err = s.lastError?.let { " • last error: $it${if (s.lastSuccessAt > 0) " (showing the last good read)" else ""}" }.orEmpty()
+    return "$status • $items$err" + if (s.refreshing) " • refreshing…" else ""
+}
+
+private fun sourceScope(id: String): String? = when (id) {
+    com.aether.tv.data.media.PlexProvider.ID, com.aether.tv.data.media.JellyfinProvider.ID, com.aether.tv.data.media.KodiProvider.ID -> "Account shared by every profile on this TV"
+    else -> null
 }
 
 fun notificationAdb(pkg: String) = "This TV has no settings screen for notification access. You can grant it once from a computer with adb:\n\n" +

@@ -72,7 +72,7 @@ class KodiProvider @Inject constructor(
         if (!config.enabled) return emptyList()
         val movies = rpc("VideoLibrary.GetMovies", inProgressParams(listOf("title", "resume", "art", "year", "lastplayed"), limit))["movies"].arr.map { movie(it) }
         val eps = rpc("VideoLibrary.GetEpisodes", inProgressParams(listOf("title", "showtitle", "season", "episode", "resume", "art", "lastplayed"), limit))["episodes"].arr.map { episode(it) }
-        return (movies + eps).take(limit)
+        return (movies + eps).sortedByDescending { it.engagedAt ?: 0L }.take(limit)
     }
 
     override suspend fun search(query: String, limit: Int): List<MediaItem> {
@@ -95,10 +95,12 @@ class KodiProvider @Inject constructor(
         return if (total > 0) (pos / total).toFloat().coerceIn(0f, 1f) else null
     }
 
-    private fun movie(e: JsonElement) = MediaItem("movie:${e["movieid"].long}", ID, e["title"].str.orEmpty(), e["year"].long?.toString(), art(e), progress(e), kind = MediaKind.Movie)
+    private fun movie(e: JsonElement) = MediaItem("movie:${e["movieid"].long}", ID, e["title"].str.orEmpty(), e["year"].long?.toString(), art(e), progress(e), kind = MediaKind.Movie,
+        engagedAt = MediaTimes.kodi(e["lastplayed"].str))
     private fun episode(e: JsonElement) = MediaItem(
         "episode:${e["episodeid"].long}", ID, e["showtitle"].str ?: e["title"].str.orEmpty(),
         "S${e["season"].long ?: 0} E${e["episode"].long ?: 0} • ${e["title"].str.orEmpty()}", art(e), progress(e), kind = MediaKind.Episode,
+        engagedAt = MediaTimes.kodi(e["lastplayed"].str), season = e["season"].long?.toInt(), episode = e["episode"].long?.toInt(),
     )
 
     override suspend fun resume(item: MediaItem): ResumeResult {

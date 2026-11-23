@@ -1,3 +1,5 @@
+import java.util.Properties
+
 plugins {
     alias(libs.plugins.android.application)
     alias(libs.plugins.kotlin.android)
@@ -7,6 +9,16 @@ plugins {
     alias(libs.plugins.hilt)
     alias(libs.plugins.roborazzi)
 }
+
+// Release signing comes from a git-ignored keystore.properties or from environment variables (CI); see SIGNING.md.
+// Without either, release builds stop with an error: Aether never switches signing identity silently.
+val signingProps = Properties().apply {
+    val f = rootProject.file("keystore.properties")
+    if (f.exists()) f.inputStream().use { load(it) }
+}
+fun signingValue(prop: String, env: String): String? = signingProps.getProperty(prop) ?: System.getenv(env)
+val releaseKeystore = signingValue("storeFile", "AETHER_KEYSTORE")?.let { rootProject.file(it) }
+val allowDebugSignedRelease = (project.findProperty("aether.debugSignedRelease") as String?) == "true"
 
 android {
     namespace = "com.aether.tv"
@@ -18,10 +30,21 @@ android {
         minSdk = 25
         // Fire OS 14 devices require targetSdk 34 for new installs.
         targetSdk = 34
-        versionCode = 2
-        versionName = "1.1.0"
+        versionCode = 3
+        versionName = "1.2.0"
         testInstrumentationRunner = "androidx.test.runner.AndroidJUnitRunner"
         vectorDrawables.useSupportLibrary = true
+        // Where Settings ▸ Updates looks for releases (owner/repo on GitHub).
+        buildConfigField("String", "UPDATE_REPO", "\"pehdry-dot/aether-tv\"")
+    }
+
+    signingConfigs {
+        if (releaseKeystore != null) create("release") {
+            storeFile = releaseKeystore
+            storePassword = signingValue("storePassword", "AETHER_KEYSTORE_PASSWORD")
+            keyAlias = signingValue("keyAlias", "AETHER_KEY_ALIAS")
+            keyPassword = signingValue("keyPassword", "AETHER_KEY_PASSWORD")
+        }
     }
 
     buildTypes {
@@ -29,8 +52,12 @@ android {
             isMinifyEnabled = true
             isShrinkResources = true
             proguardFiles(getDefaultProguardFile("proguard-android-optimize.txt"), "proguard-rules.pro")
-            // Signed with the debug key unless a release keystore is configured (see BUILD.md).
-            signingConfig = signingConfigs.getByName("debug")
+            signingConfig = when {
+                releaseKeystore != null -> signingConfigs.getByName("release")
+                // Only on request (-Paether.debugSignedRelease=true): a debug-signed release can't update a release-signed install.
+                allowDebugSignedRelease -> signingConfigs.getByName("debug")
+                else -> null
+            }
         }
         debug {
             applicationIdSuffix = ".debug"
@@ -128,4 +155,14 @@ dependencies {
     testImplementation(libs.roborazzi)
     testImplementation(libs.roborazzi.compose)
     testImplementation(libs.roborazzi.junit.rule)
+}
+
+// A release build without a configured key fails here instead of producing an APK signed with an unexpected identity.
+tasks.matching { it.name == "packageRelease" }.configureEach {
+    doFirst {
+        if (releaseKeystore == null && !allowDebugSignedRelease) throw GradleException(
+            "No release signing key. Create keystore.properties (see SIGNING.md) or set AETHER_KEYSTORE*, " +
+                "or build with -Paether.debugSignedRelease=true to sign with this machine's debug key on purpose.",
+        )
+    }
 }
