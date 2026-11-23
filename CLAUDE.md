@@ -20,7 +20,7 @@ Android 14 / API 34, build SL14SHIP1015, Hisense-built AFTCU9343B, MediaTek MT96
 ```bash
 export ANDROID_HOME=/path/to/android-sdk
 ./gradlew :app:assembleDebug            # app/build/outputs/apk/debug/app-debug.apk (id com.aether.tv.debug)
-./gradlew :app:assembleRelease          # minified, signed with debug key unless a keystore is configured
+./gradlew :app:assembleRelease          # minified; needs keystore.properties or AETHER_KEYSTORE* (SIGNING.md)
 ./gradlew :app:testDebugUnitTest        # unit + Robolectric UI tests
 ./gradlew :app:recordRoborazziDebug --tests 'com.aether.tv.ui.ScreenshotTest'   # docs/screenshots/*.png
 ```
@@ -37,10 +37,23 @@ Robolectric is pointed at the same mirror in `app/build.gradle.kts`.
 - `ui/*` — `LauncherViewModel` (single source of UI state), `MainScreen` scaffold, pages, overlays.
 - Tests: `app/src/test` (JVM + Robolectric; `TestEnv` wires real repos to in-memory storage).
 
+## Focus rules (1.2.0, keep their tests: RemotePathTest, SettingsOverviewTest, HiddenSettingsTabTest)
+- Pages and overlays are `FocusLayer`s; only `GlassTile`s in active layers can take focus. New focusable controls should
+  be `GlassTile`s (or read `LocalFocusLayer` the same way).
+- Don't put `focusRestorer` on a group that code also focuses into by `requestFocus()`: it redirects those requests.
+  Use `dpadEntry { … }` (D-pad entry only). Plain rows (`rowFocus`) are fine.
+- Programmatic focus: `FocusRequester.tryFocus()` / `FocusSpot.tryFocus()`; never into a hidden page.
+- Open other pages through `vm.openSettings(key)` / `vm.navigation`, not by setting `settingsTarget` alone.
+- UI tests drive keys through the Activity with `remote()/up()/ok()/back()` in `LauncherUiTest`, like a real remote.
+
 ## Conventions
 - New interactive elements: use `GlassTile` / `OptionRow` (they handle focus, OK, long-press, Menu key, focus memory).
 - New rows: `BleedRow` so focus zoom isn't clipped. Lists of settings: `ToggleRow` / `ChoiceRow` / `SliderRow`.
-- Overlays: add a case to `Overlay` and render it in `OverlayHost`; Back closes it; focus is restored automatically.
+- Overlays: add a case to `Overlay` and render it in `OverlayContent` (OverlayHost); Back closes it; focus returns to
+  whatever opened it. Overlays stack: a picker opened from a dialog keeps the dialog's state.
+- Pictures the user gives Aether go through `AssetStore` (private copies, never touching TV-folder originals, unused
+  copies removed only when no profile/favorite/device/game refers to them).
+- Release signing: never fall back to the debug key silently; see SIGNING.md. Updates are verified by `UpdateRules`.
 - Settings fields need a default value (backwards-compatible JSON).
 
 ## Home button on Fire TV (hardware facts, measured)

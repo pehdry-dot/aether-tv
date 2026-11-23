@@ -34,6 +34,9 @@ abstract class LauncherUiTest {
         vm.testStateTransform.value = UiHarness::transform
         rule.setContent { LauncherApp(vm) }
         settleUntil { vm.state.value.apps != null && vm.state.value.favoriteApps.isNotEmpty() }
+        // First-run favorites are added one by one in the background; a short test could end (and close the
+        // database) before the last one is written.
+        settleUntil { kotlinx.coroutines.runBlocking { env.settings.flag("seeded_default") } }
         settleUntil { rule.onAllNodes(isFocused()).fetchSemanticsNodes().isNotEmpty() }
     }
 

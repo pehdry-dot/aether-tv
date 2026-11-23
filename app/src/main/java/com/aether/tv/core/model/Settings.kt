@@ -126,32 +126,31 @@ data class HomeLayoutSettings(
     /** Favorites page: grouped dashboard (true) or one simple grid (false). */
     val favoritesGrouped: Boolean = true,
     /**
-     * False in profiles saved before the Settings tab could be hidden. Those versions always showed Settings whatever
-     * was stored, so [LauncherSettings.normalized] shows it once and sets this.
+     * The Settings tab in the tab row (Home Layout ▸ Navigation tabs). Its own field: versions before 1.2 always showed
+     * Settings whatever its entry in [tabs] said, so that entry's `visible` is ignored and older profiles (without this
+     * field) keep their Settings tab. The ⚙ button opens Settings either way.
      */
-    val settingsTabHideable: Boolean = false,
+    val showSettingsTab: Boolean = true,
 )
 
 /** Tabs shown in the tab row, in order. Home is always shown; every other tab, Settings included, can be hidden. */
-fun HomeLayoutSettings.visibleTabs(): List<LauncherTab> = tabs.filter { it.visible || it.tab == LauncherTab.Home }.map { it.tab }
+fun HomeLayoutSettings.visibleTabs(): List<LauncherTab> = tabs.filter {
+    when (it.tab) {
+        LauncherTab.Home -> true
+        LauncherTab.Settings -> showSettingsTab
+        else -> it.visible
+    }
+}.map { it.tab }
 
 /**
- * Repairs and upgrades settings read from storage, a backup or another profile:
- * every tab listed exactly once (new tabs appended), Home visible, Settings visible in profiles from before it could be
- * hidden, the start tab one that is shown, and values clamped to their ranges.
+ * Repairs settings read from storage, a backup or another profile: every tab listed exactly once (new tabs appended),
+ * the start tab one that is shown, and values clamped to their ranges. Unchanged settings are returned as they are.
  */
 fun LauncherSettings.normalized(): LauncherSettings {
     val l = layout
     val seen = HashSet<LauncherTab>()
-    var tabs = l.tabs.filter { seen.add(it.tab) } + LauncherTab.entries.filter { it !in seen }.map { TabConfig(it) }
-    tabs = tabs.map {
-        when {
-            it.tab == LauncherTab.Home -> it.copy(visible = true)
-            it.tab == LauncherTab.Settings && !l.settingsTabHideable -> it.copy(visible = true)
-            else -> it
-        }
-    }
-    val fixedLayout = l.copy(tabs = tabs, settingsTabHideable = true).let { fl ->
+    val tabs = l.tabs.filter { seen.add(it.tab) } + LauncherTab.entries.filter { it !in seen }.map { TabConfig(it) }
+    val fixedLayout = (if (tabs == l.tabs) l else l.copy(tabs = tabs)).let { fl ->
         if (fl.defaultTab in fl.visibleTabs()) fl else fl.copy(defaultTab = LauncherTab.Home)
     }
     val a = appearance

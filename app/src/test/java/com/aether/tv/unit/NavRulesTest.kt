@@ -18,26 +18,26 @@ class NavRulesTest {
         // 1.1.0 always showed Settings whatever was stored, and could start on it.
         val json = """{"layout":{"tabs":[{"tab":"Home"},{"tab":"Apps"},{"tab":"Settings","visible":false},{"tab":"Favorites"}],"defaultTab":"Settings"}}"""
         val s = SettingsRepository.decode(json)
-        assertTrue(s.layout.settingsTabHideable)
+        assertTrue(s.layout.showSettingsTab)
         assertEquals(LauncherTab.Settings, s.layout.defaultTab)
         assertEquals(listOf(LauncherTab.Home, LauncherTab.Apps, LauncherTab.Settings, LauncherTab.Favorites, LauncherTab.Media, LauncherTab.Games), s.layout.tabs.map { it.tab })
         assertTrue(LauncherTab.Settings in s.layout.visibleTabs())
     }
 
     @Test fun hidingTheStartTabFallsBackToHome() {
-        val l = HomeLayoutSettings(settingsTabHideable = true, defaultTab = LauncherTab.Settings,
-            tabs = LauncherTab.entries.map { TabConfig(it, visible = it != LauncherTab.Settings) })
+        val l = HomeLayoutSettings(showSettingsTab = false, defaultTab = LauncherTab.Settings)
         val n = LauncherSettings(layout = l).normalized()
         assertEquals(LauncherTab.Home, n.layout.defaultTab)
         assertTrue(LauncherTab.Settings !in n.layout.visibleTabs())
     }
 
     @Test fun homeCantBeHiddenAndDuplicatesAreDropped() {
-        val l = HomeLayoutSettings(settingsTabHideable = true, tabs = listOf(TabConfig(LauncherTab.Home, false), TabConfig(LauncherTab.Apps), TabConfig(LauncherTab.Apps, false)))
+        val l = HomeLayoutSettings(tabs = listOf(TabConfig(LauncherTab.Home, false), TabConfig(LauncherTab.Apps), TabConfig(LauncherTab.Apps, false)))
         val n = LauncherSettings(layout = l).normalized().layout
         assertEquals(LauncherTab.entries.size, n.tabs.size)
-        assertTrue(n.tabs.first { it.tab == LauncherTab.Home }.visible)
+        assertTrue(LauncherTab.Home in n.visibleTabs())
         assertTrue(n.tabs.first { it.tab == LauncherTab.Apps }.visible)
+        assertEquals(LauncherSettings(), LauncherSettings().normalized())
     }
 
     @Test fun detachedSettingsPageStaysOpen() {

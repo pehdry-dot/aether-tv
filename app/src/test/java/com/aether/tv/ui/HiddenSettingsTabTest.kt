@@ -18,7 +18,7 @@ class HiddenSettingsTabTest : LauncherUiTest() {
     private fun settingsTabShown() = rule.onAllNodes(hasContentDescription("Settings")).fetchSemanticsNodes().isNotEmpty()
 
     private fun hideSettings(profile: String = "default", hidden: Boolean = true) = runBlocking {
-        env.settings.update(profile) { s -> s.copy(layout = s.layout.copy(tabs = s.layout.tabs.map { if (it.tab == LauncherTab.Settings) it.copy(visible = !hidden) else it })) }
+        env.settings.update(profile) { s -> s.copy(layout = s.layout.copy(showSettingsTab = !hidden)) }
     }
 
     @Test fun hideAndRestoreWhileEditingTheLayout() {
@@ -76,6 +76,8 @@ class HiddenSettingsTabTest : LauncherUiTest() {
         settleUntil { vm.state.value.profiles.any { it.id == kids.id } }
         vm.switchProfile(kids.id)
         settleUntil { vm.state.value.profileId == kids.id && LauncherTab.Settings !in vm.state.value.visibleTabs }
+        // Switching seeds the new profile's favorites in the background; let that finish before switching back.
+        settleUntil { runBlocking { env.settings.flag("seeded_${kids.id}") } }
         vm.switchProfile("default")
         settleUntil { vm.state.value.profileId == "default" && LauncherTab.Settings in vm.state.value.visibleTabs }
         assertTrue(settingsTabShown())

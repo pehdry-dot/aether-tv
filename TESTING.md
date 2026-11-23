@@ -6,24 +6,73 @@
 ./gradlew :app:testDebugUnitTest --tests 'com.aether.tv.ui.NavigationTest'
 ./gradlew :app:recordRoborazziDebug --tests 'com.aether.tv.ui.ScreenshotTest'   # writes docs/screenshots/*.png
 ```
+```bash
+AETHER_REVIEW_SHOTS=1 ./gradlew :app:recordRoborazziDebug --tests 'com.aether.tv.ui.ReviewShotsTest' --rerun   # review PNGs of 1.2 screens
+```
 Robolectric runs with `graphicsMode=NATIVE`, so screenshots are real Compose/Skia renders of the production UI at
 `w960dp-h540dp-xhdpi` (1920×1080 px), the Android TV / Fire TV UI resolution.
 
-## Latest results (executed 2026-11-20, JVM, Robolectric SDK 34)
-| Suite | Tests | Result | Covers |
-|---|---|---|---|
-| `unit.SettingsSerializationTest` | 4 | ✅ pass | defaults, corrupt JSON fallback, unknown fields, round trip |
-| `unit.AppLibraryLogicTest` | 7 | ✅ pass | sorting (name/recent/usage/installed), hidden & non-TV filtering, search ranking, category/game/hidden filters, custom labels, list moves |
-| `unit.DeviceStatusTest` | 5 | ✅ pass | shortcuts never "Connected", input state mapping, unavailable vs unknown, Bluetooth connected/paired/missing/no-permission, Home device selection |
-| `unit.ParsingTest` | 3 | ✅ pass | HDMI hardware index (Fire TV `inputType`), HDMI port labels, server URL normalisation |
-| `data.RepositoryTest` | 7 | ✅ pass | favorites add/dedupe/toggle/scoped reordering, per-profile app metadata, game override, profiles + PIN + settings isolation, PBKDF2 PIN hashing, backup round trip (no tokens), Xbox seed is an unconfigured shortcut |
-| `data.ProviderTest` | 3 | ✅ pass | Jellyfin sign-in + resume parsing + auth headers, Kodi JSON-RPC resume points + artwork URLs, unreachable server → error (no fake data) — against a local MockWebServer |
-| `ui.NavigationTest` | 8 | ✅ pass | initial focus, D-pad along rows, Up lands on the *selected* tab, tab switching, Back from content → tabs → Home, Menu key options + Back + focus restoration, move mode reordering via remote, settings slider via ◀ ▶, search overlay |
-| `ui.ScreenshotTest` | 11 | ✅ pass | Home, Apps, Favorites, Settings, Media, Games, Appearance detail, app options, Quick Controls, light theme, icons-only |
-| **Total** | **48** | **✅ 48 / 48** | |
+## Latest results (executed 2026-11-23, JVM, Robolectric SDK 34, version 1.2.0)
+`./gradlew :app:testDebugUnitTest --rerun`, twice in a row: **169 tests, 152 run, 0 failed, 17 skipped**. The 17
+skipped are `ReviewShotsTest`, which only render review screenshots when `AETHER_REVIEW_SHOTS=1` is set; they were run
+that way during development and their PNGs inspected, but they assert nothing.
 
-Bugs found and fixed by these tests: tiles weren't focusable outside keyboard input mode; focus was lost after
-closing overlays; Down from the Settings tab skipped the category list; placeholder missing in editing text fields.
+UI tests send keys through `Activity.dispatchKeyEvent` (`LauncherUiTest.remote()/up()/ok()/back()`), the same path
+as the remote's keys, including Back through the Activity's back dispatcher.
+
+| Suite | Tests | Covers |
+|---|---|---|
+| `ui.RemotePathTest` | 7 | **Settings trap:** Appearance ▸ slider ▸ Up to tabs ▸ Favorites ▸ open a favorite with zero Back presses, in "When focused" and "On click (OK)" modes, with fast key presses, after closing a dialog; Back on the tabs never pulls focus into Settings; Back from a panel goes to its category, then the tab; a search deep link opens Settings visibly |
+| `ui.SettingsOverviewTest` | 7 | Overview: Right and OK both enter; Add Device (with a nested picker, keeping the edit), Xbox, Wallpaper (picker ▸ preview ▸ Apply/Cancel), Typography, Theme/Accent/Glass open their own controls; focus returns to the card each time |
+| `ui.HiddenSettingsTabTest` | 6 | Hide/restore while editing the layout; ⚙ opens Settings without a tab and Back returns; internal shortcuts work without a tab; per-profile tab rows; a hidden start tab falls back to Home; the Home button closes overlays and shows Home |
+| `ui.NavigationTest` | 11 | Initial focus, D-pad rows, Up to the selected tab, tab switching, pages built once and kept, sweeping tabs only builds the one you stop on, focus never enters a hidden page, Menu key options, move mode, slider ◀ ▶, search |
+| `ui.HomeContinueWatchingTest` | 1 | A new Nuvio episode appears first, focus stays on its card through the reorder, OK resumes it in Nuvio |
+| `ui.StorageAndStoreTest` | 2 | Storage measures and deletes only what you pick (with confirmation, assets in use kept); Store lists only stores that open and offers Aurora |
+| `ui.ScreenshotTest` | 11 | Renders docs/screenshots (Home, Apps, Favorites, Settings Overview, Media, Games, Appearance, app options, Quick Controls, light theme, icons only), driven by remote keys |
+| `media.ContinueWatchingTest` | 10 | A new Nuvio episode after 12 old entries (late write), bursts coalesced, observers removed when Aether leaves the front, same-title episodes stay two cards, an offline server never delays local sources and keeps its last result, empty ≠ failed, account change drops old cards, Now Playing card, bounded artwork cache |
+| `media.ContinueWatchingRankerTest` | 5 | Merge before the limit by engagement, Watch Next + channel duplicates become one card, untimed items keep publisher order, sessions yield to resumable listings, localized channel names |
+| `update.UpdateRulesTest` | 7 | Newest compatible release, drafts/prereleases/other apps skipped, numeric versionCode (not names), Android version and signer, 32-bit TV needs armeabi-v7a code, GitHub JSON and notes, wrong-file verification |
+| `update.UpdateManagerTest` | 8 | Check ▸ download ▸ verify ▸ install (against a local stand-in for GitHub), unknown-apps permission detour resumes, signer mismatch refused before downloading, tampered file deleted, interrupted download resumes with Range, cancel removes the partial file, rate limit and offline explained, not enough space |
+| `data.BackupTest` | 6 | Round trip onto a fresh install keeps wallpaper, device photos and icon overrides; a damaged backup changes nothing; an interrupted restore is finished on the next start; undo restore; cleanup never deletes what another profile uses; 1.1.0 backups still restore |
+| `data.WallpaperImportTest` | 2 | Apply keeps a preview, Cancel removes it, the TV folder is never touched; download errors are explained |
+| `data.RepositoryTest` | 7 | Favorites, per-profile metadata, game override, profiles + PIN + settings isolation, PIN hashing, backup data round trip, Xbox seed is an unconfigured shortcut |
+| `data.ProviderTest` | 3 | Jellyfin sign-in and resume, Kodi resume points, unreachable server → error (no fake data) |
+| `unit.RemoteShortcutTest` | 6 | Holding ☰ opens the quick panel once, a short ☰ still reaches the app, other keys are never touched, the Home-button service never covers the panel, panel session expiry, Aurora release parsing and pinned signer |
+| `unit.HomeRedirectPolicyTest` | 9 | Home redirect rules measured on the M450 (kept from 1.1) |
+| `unit.NavRulesTest` | 5 | Older profiles keep their Settings tab and start tab, hidden start tab → Home, Home can't be hidden, detached Settings page, text-size steps |
+| `unit.*` (other) | 39 | Settings JSON, app library logic, device status, parsing, logo mask, photo scaling, Watch Next text, weather |
+
+Bugs found by these tests during 1.2 and fixed: `focusRestorer` redirected programmatic focus (dialogs and deep
+links landed on the sidebar); OK on the selected tab followed geometry into a Home tile; an Overview row overflowed
+and Left/Up landed on a zero-width tile; quick slider presses lost steps; the Home button raced overlay focus restore;
+the Storage dialog lost focus after measuring; the 150 % Apps grid clipped names; a first-run favorites write could
+outlive a short test.
+
+## Emulator checks
+None. This build environment has no KVM, so no Android emulator could run. Everything above is JVM + Robolectric.
+
+## Physical TV (Toshiba 43M450SU)
+Nothing in 1.2.0 has been run on the TV yet: no adb connection to it was available to the build session
+(`adb devices` listed nothing). The 1.1.0 hardware checks from 2026-11-21 (launch, navigation, Home, HDMI) are in
+CLAUDE.md and FEATURE_MATRIX.md.
+
+### Awaiting hardware (1.2.0)
+Each is simulated or reasoned from public sources only; see KNOWN_LIMITATIONS.md ▸ "1.2.0: what still needs the TV".
+- First install or upgrade of the release-signed APK (see SIGNING.md) and Fire OS 14's installer confirmation.
+- Settings ▸ Updates end to end against a real GitHub release, including the "Install unknown apps" detour.
+- ⚙ (and holding Home) for the quick panel over Nuvio, YouTube and HDMI 1 with Amazon's launcher disabled; whether ⚙
+  reaches Aether's key filter as `KEYCODE_SETTINGS`; whether `HudActivity` opens from Aether.
+- Continue Watching timing with the real Nuvio (Watch Next written in `onStop`), and what YouTube exposes.
+- Aurora Store install from GitLab and Amazon Appstore launch.
+- Remote response (Advanced ▸ Remote response) with "Build pages in advance" on and off, and frame timing of the new
+  fonts and the Overview.
+- Storage numbers (`StatFs`) and app info screens on Fire OS.
+
+### Measuring remote response on the TV
+Settings ▸ Advanced ▸ Remote response shows median, 95th percentile and worst time from a key press to the next frame,
+split by whether pages were built in advance, plus the worst press while a page was being built. To compare: use the
+launcher for a minute with "Build pages in advance" on, note the line, switch it off, force-stop Aether (so pages are
+built again), repeat, then select the row to refresh both lines.
 
 ## Visual fidelity
 `docs/comparison/*.png` place each reference next to the rendered screen. Matched: layout grid, margins (48 dp),
@@ -31,15 +80,7 @@ tile/card proportions, pill tabs, typography scale, glass opacity, thin focus bo
 composition. Intentional differences: demo app icons instead of third-party logos; the Xbox photo is cut from the reference screenshot, so it is lower resolution than an official asset; the
 procedurally generated wallpaper is moodier than the reference photo.
 
-## Not executed (requires hardware)
-These can't be run without the physical TV, so none of them is marked as passing:
-- Install and launch on the Toshiba 43M450SU; OS/API confirmation.
-- HDMI input switching (Amazon service / passthrough) and input-state accuracy.
-- Bluetooth runtime permission flow on Fire OS 14; A2DP connection state.
-- Notification-listener grant via adb; media sessions from real apps.
-- Performance: cold start, frame timing, memory, idle CPU.
-
-### How to measure on the TV
+## How to measure performance on the TV
 ```bash
 adb shell am force-stop com.aether.tv
 ```

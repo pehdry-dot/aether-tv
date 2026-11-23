@@ -140,18 +140,22 @@ private fun LazyListScope.homeLayout(state: LauncherUiState, vm: LauncherViewMod
         item("tab-${cfg.tab}") {
             val locked = cfg.tab == LauncherTab.Home
             val settingsTab = cfg.tab == LauncherTab.Settings
+            val shown = locked || (if (settingsTab) l.showSettingsTab else cfg.visible)
             OptionRow(
                 cfg.tab.label,
-                { if (!locked) vm.layout { s -> s.copy(tabs = s.tabs.map { if (it.tab == cfg.tab) it.copy(visible = !it.visible) else it }) } },
-                icon = if (cfg.visible || locked) AetherIcons.Eye else AetherIcons.EyeOff,
+                {
+                    if (settingsTab) vm.layout { s -> s.copy(showSettingsTab = !s.showSettingsTab) }
+                    else if (!locked) vm.layout { s -> s.copy(tabs = s.tabs.map { if (it.tab == cfg.tab) it.copy(visible = !it.visible) else it }) }
+                },
+                icon = if (shown) AetherIcons.Eye else AetherIcons.EyeOff,
                 detail = when {
                     locked -> "Always shown"
-                    settingsTab && cfg.visible -> "Shown • the ⚙ button at the top right also opens Settings"
+                    settingsTab && shown -> "Shown • the ⚙ button at the top right also opens Settings"
                     settingsTab -> "Hidden • open Settings with the ⚙ button at the top right"
-                    cfg.visible -> "Shown"
+                    shown -> "Shown"
                     else -> "Hidden"
                 },
-                stateText = if (cfg.visible || locked) "Shown" else "Hidden",
+                stateText = if (shown) "Shown" else "Hidden",
                 onKey = { code -> reorderKey(code) { d -> vm.layout { s -> s.copy(tabs = s.tabs.moved(i, d)) } } },
             )
         }

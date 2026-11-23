@@ -14,7 +14,13 @@
   local/streaming/console grouping and game shortcuts.
 - **Phase 7 — Hardening (JVM)**: 48 automated tests, rendered screenshots, R8 release build verified.
 
+- **1.2.0** — Settings navigation fix (focus layers, overlay stack), Overview, hideable Settings tab, self-refreshing
+  Continue Watching, wallpaper preview, typography editor, storage screen, CleanFrame symbols, app store entry, GitHub
+  updater and release workflow, backups with pictures.
+
 ## Next (needs the physical TV)
+0. 1.2.0 hardware checks (TESTING.md ▸ Awaiting hardware): ⚙ quick panel from apps/HDMI with Amazon's home off,
+   Fire OS installer confirmation, Nuvio late writes, remote response with and without building pages in advance.
 1. Install on the Toshiba M450; confirm OS/API level (Settings ▸ Advanced ▸ Diagnostics).
 2. Verify HDMI switching per input (Recent events log), adjust the Fire TV `inputType` mapping if needed.
 3. Measure startup and frame timings (`adb shell dumpsys gfxinfo com.aether.tv framestats`); tune blur/glow.

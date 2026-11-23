@@ -1,12 +1,9 @@
 package com.aether.tv.ui
 
 import androidx.activity.ComponentActivity
-import androidx.compose.ui.input.key.Key
 import androidx.compose.ui.test.ExperimentalTestApi
 import androidx.compose.ui.test.junit4.createAndroidComposeRule
 import androidx.compose.ui.test.onRoot
-import androidx.compose.ui.test.performKeyInput
-import androidx.compose.ui.test.pressKey
 import androidx.test.ext.junit.runners.AndroidJUnit4
 import com.aether.tv.TestEnv
 import com.github.takahirom.roborazzi.captureRoboImage
@@ -28,13 +25,14 @@ class ScreenshotTest : LauncherUiTest() {
     private fun shot(name: String) { settle(); rule.onRoot().captureRoboImage("../docs/screenshots/$name.png") }
 
     @Test fun home() = shot("01_home")
-    @Test fun apps() { key(Key.DirectionUp); key(Key.DirectionRight); key(Key.DirectionDown); shot("02_apps") }
-    @Test fun favorites() { key(Key.DirectionUp); key(Key.DirectionRight, 4); key(Key.DirectionDown); shot("03_favorites") }
-    @Test fun settings() { key(Key.DirectionUp); key(Key.DirectionRight, 5); key(Key.DirectionDown); shot("04_settings") }
-    @Test fun media() { key(Key.DirectionUp); key(Key.DirectionRight, 2); shot("05_media") }
-    @Test fun games() { key(Key.DirectionUp); key(Key.DirectionRight, 3); shot("06_games") }
-    @Test fun settingsAppearance() { key(Key.DirectionUp); key(Key.DirectionRight, 5); key(Key.DirectionDown); key(Key.DirectionRight); shot("07_settings_appearance") }
-    @Test fun appOptions() { key(Key.Menu); shot("08_app_options") }
+    // Keys go through the Activity like the remote's (see LauncherUiTest.remote); tabs switch after a short rest.
+    @Test fun apps() { up(); right(); rest(); down(); shot("02_apps") }
+    @Test fun favorites() { up(); right(4); rest(); down(); shot("03_favorites") }
+    @Test fun settings() { up(); right(5); rest(); down(); shot("04_settings") } // Overview
+    @Test fun media() { up(); right(2); rest(); shot("05_media") }
+    @Test fun games() { up(); right(3); rest(); shot("06_games") }
+    @Test fun settingsAppearance() { up(); right(5); rest(); down(2); right(); shot("07_settings_appearance") }
+    @Test fun appOptions() { remote(android.view.KeyEvent.KEYCODE_MENU); shot("08_app_options") }
     @Test fun quickControls() { vm.show(Overlay.QuickControls); shot("09_quick_controls") }
     @Test fun lightTheme() {
         vm.updateSettings { it.copy(appearance = it.appearance.copy(theme = com.aether.tv.core.model.ThemeMode.Light)) }

@@ -16,9 +16,22 @@ overlays.*
 > **Read [KNOWN_LIMITATIONS.md](KNOWN_LIMITATIONS.md) first.** Fire OS does not allow third-party apps to replace the
 > Home screen or to switch HDMI inputs through an official API. Aether works within those limits and says so in the UI.
 
-## What's new in 1.1.0
-See [CHANGELOG.md](CHANGELOG.md): Home button support on Fire TV, Continue Watching from apps such as Nuvio (Android TV
-Watch Next), weather next to the clock, white app logos in a glass dock, much smoother Settings and tab switching.
+## What's new in 1.2.0
+See [CHANGELOG.md](CHANGELOG.md). Highlights:
+- **Settings and remote fixes.** The Settings navigation trap is fixed. Overview works fully with the remote. The
+  Settings tab can be hidden, since ⚙ still opens Settings. Home always shows a usable Home screen.
+- **Continue Watching updates by itself**, for example a new Nuvio episode appears as you press Home. It also shows
+  per-source diagnostics.
+- **Appearance:** wallpaper preview before applying, a typography editor with six bundled typefaces and text up to
+  150 %, and CleanFrame-style app symbols.
+- **Storage screen** that works with Amazon's home switched off.
+- **Apps ▸ Store**, which can install Aurora Store.
+- **Updates from GitHub Releases**, installed with the remote.
+- **Backups that include your pictures.**
+
+**Upgrading from 1.1.0:** 1.1.0 was signed with a development key that isn't available any more. 1.2.0 needs a
+one-time reinstall: back up, reinstall, restore. [SIGNING.md](SIGNING.md) has the exact steps. From then on, updates
+install from **Settings ▸ Updates**, without a computer.
 
 ## What you get
 - Home with favorite apps, Continue Watching (Plex / Jellyfin / Kodi / any app's live media session) and Connected
@@ -26,9 +39,9 @@ Watch Next), weather next to the clock, white app logos in a glass dock, much sm
 - Apps library: search, sort, filters, categories, hidden apps, rename, icon overrides, grid or list.
 - Favorites dashboard for apps, games, HDMI inputs, devices, system screens and media.
 - Games page split into *Play on this TV*, *Stream* and *Consoles* (HDMI).
-- Settings: appearance (wallpaper, theme, accent, glass opacity, blur, dim, radius, borders, focus glow and zoom, icon
-  size, typography, motion), home layout, behavior, applications, devices, TV & system shortcuts, integrations,
-  profiles with PINs, backup/restore, diagnostics.
+- Settings: Overview dashboard, appearance (wallpaper with preview, theme, accent, glass, typography editor, app logo
+  style), home layout, behavior, applications, devices, TV & system (storage, remote shortcuts), integrations with
+  diagnostics, profiles with PINs, updates, backup/restore, diagnostics.
 - Everything works with a TV remote: D-pad, OK, Back, long-press OK or the ☰ Menu key for options.
 
 ## Install on the Toshiba M450 / Fire TV
@@ -91,19 +104,18 @@ Output: `app/build/outputs/apk/release/app-release.apk` (R8-minified; package `c
 `./gradlew :app:assembleDebug` builds `com.aether.tv.debug`, which can sit alongside the release.
 
 ### Release signing
-The release build is signed with the **debug key** so it installs anywhere for personal use. To sign with your own
-key, create a keystore:
-```bash
-keytool -genkeypair -v -keystore aether-release.jks -alias aether -keyalg RSA -keysize 4096 -validity 10000
-```
-Then replace `signingConfig = signingConfigs.getByName("debug")` in `app/build.gradle.kts` with a
-`signingConfigs.create("release") { … }` block that reads the path and passwords from a git-ignored
-`keystore.properties`. Never commit keystores or passwords.
+A release build needs a signing key, given in a git-ignored `keystore.properties` or through environment variables
+in CI. Without one, the build stops with an explanation; it never signs with a debug key silently. Keys and passwords
+are never committed. [SIGNING.md](SIGNING.md) covers setup, the GitHub Actions release workflow, and why the key must
+stay the same for in-place updates.
 
 ## Troubleshooting
 | Problem | Fix |
 |---|---|
 | Home button goes to Amazon's screen | Expected on Fire OS (see limitations). Launch Aether from the app row. |
+| Settings tab is gone | It can be hidden (Home Layout ▸ Navigation tabs). The ⚙ button at the top right always opens Settings. |
+| Picture or sound while watching an app or the Xbox | Press ⚙ on the remote (or hold Home) over the app or HDMI input; see Settings ▸ TV & System ▸ Remote shortcuts. |
+| An update isn't offered | Settings ▸ Updates says why (no newer release, other signing key, Android version). See SIGNING.md. |
 | Selecting a console doesn't switch input | *Settings ▸ Advanced ▸ Recent events* shows what was tried. Make sure the device has a TV input assigned (*Settings ▸ Devices*). Some Fire OS builds refuse the input service; Aether then opens Live TV/Settings. |
 | A device shows "Input shortcut" | The TV didn't report that input to apps, so Aether can't verify its status. |
 | Continue Watching is empty | Connect Plex/Jellyfin/Kodi in *Settings ▸ Integrations*, or grant notification access. Streaming apps don't share history. |
@@ -134,6 +146,7 @@ adb pull /sdcard/Android/data/com.aether.tv/files/backups/
 [TESTING.md](TESTING.md) · [ROADMAP.md](ROADMAP.md) · [CLAUDE.md](CLAUDE.md)
 
 ## Licenses
-Apache-2.0 libraries (AndroidX, Compose, Hilt, Room, Coil, OkHttp, kotlinx). Inter font: SIL OFL 1.1
-(`licenses/Inter-OFL.txt`). Icons derived from Lucide: ISC (`licenses/Lucide-LICENSE.txt`). Wallpapers are original
+Apache-2.0 libraries (AndroidX, Compose, Hilt, Room, Coil, OkHttp, kotlinx). Typefaces (Inter, Atkinson Hyperlegible
+Next, Open Sans, Lexend, Nunito, Source Serif 4): SIL OFL 1.1 (`licenses/*-OFL.txt`). CleanFrame symbols: brand marks
+from Simple Icons (CC0) and Custom Brand Icons (MIT), sizing after CleanFrame (MIT); see `licenses/BRAND-SYMBOLS.md`. Icons derived from Lucide: ISC (`licenses/Lucide-LICENSE.txt`). Wallpapers are original
 procedurally generated artwork (`tools/generate_wallpaper.py`). No third-party logos are bundled.

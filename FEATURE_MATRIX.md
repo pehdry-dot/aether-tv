@@ -40,3 +40,14 @@ Verification: **JVM** = unit/Robolectric tests or rendered screenshots; **HW** =
 | Open after boot | 🟡 overlay permission | 🟡 | 🟡 | 🟡 adb | — |
 | Animated wallpaper (optional) | ✅ | ✅ | ✅ | ✅ | — |
 | Icon packs | ⛔ not yet | | | | — |
+| Settings Overview dashboard, remote-reachable | ✅ | ✅ | ✅ | ✅ | JVM (SettingsOverviewTest) |
+| Hideable Settings tab (⚙ always opens Settings) | ✅ | ✅ | ✅ | ✅ | JVM (HiddenSettingsTabTest) |
+| Continue Watching live refresh (observers, late writes, ranking) | ✅ | ✅ | ✅ | 🟡 needs TV listings permission | JVM (ContinueWatchingTest, fake TvProvider); HW pending |
+| Wallpaper preview before applying | ✅ | ✅ | ✅ | ✅ | JVM |
+| Typography editor, 6 bundled typefaces, 90–150 % | ✅ | ✅ | ✅ | ✅ | JVM, screenshots |
+| Storage screen (Aether-native) | ✅ | ✅ | ✅ | ✅ works without Amazon's launcher | JVM |
+| CleanFrame symbols app style | ✅ | ✅ | ✅ | ✅ | JVM, screenshots |
+| Apps ▸ Store (launchable stores, Aurora install) | ✅ | ✅ | ✅ | 🟡 Google Play usually absent | JVM; HW pending |
+| Updates from GitHub Releases | ✅ | ✅ | ✅ | 🟡 installer confirmation unverified on Fire OS 14 | JVM (mock GitHub); HW pending |
+| TV quick panel from apps/HDMI (⚙ / hold Home; optional hold ☰) | 🟡 | — | — | 🟡 documented gesture, unverified on M450 | JVM (policy); HW pending |
+| Backups with pictures, checked + recoverable restore | ✅ | ✅ | ✅ | ✅ | JVM (BackupTest) |

@@ -9,6 +9,36 @@ assumptions** and **workarounds**.
   Amazon's input service. Still unmeasured on hardware: frame timings, media integrations, Bluetooth listing.
 - **The M450 runs Fire OS 14** (Android 14, API 34, build SL14SHIP1015), not Vega OS. Its userland is 32-bit only.
 
+## 1.2.0: what still needs the TV
+1.2.0 was built and tested without access to the Toshiba: no adb connection was available to the build session. The
+checks below were simulated (Robolectric) or come from public sources, not from this TV:
+
+- **TV quick panel from apps and HDMI.**
+  - Amazon documents ⚙ on the remote (or holding Home) as opening Quick Settings over what's playing, with Picture
+    settings kept per input.
+  - The panel was reported as `com.amazon.tv.settings.v2/.hud.HudActivity` on a Fire OS 8 Fire TV Edition set.
+  - Not checked on the M450:
+    - whether ⚙ works with `com.amazon.tv.launcher` disabled;
+    - whether ⚙ reaches apps as `KEYCODE_SETTINGS` (176);
+    - whether `HudActivity` is exported;
+    - whether Android's quick-settings global action does anything on Fire OS.
+  - Settings ▸ TV & System ▸ Remote shortcuts has a button tester and an "open it now" row to check this on the TV.
+  - The optional hold-☰ shortcut needs the Home button service. A held ☰ is not passed on to the app.
+- **Updates.** The selection, download, verification and unknown-apps logic are tested against a stand-in for GitHub.
+  Android's installer confirmation on Fire OS 14 hasn't been seen yet. Community reports describe it working on Fire
+  OS 7, approved with the remote. Fire OS's `ACTION_MANAGE_UNKNOWN_APP_SOURCES` may open Developer options or the
+  device page rather than Aether's own switch; the UI explains the path.
+- **YouTube** on Fire TV publishes only a media session, as far as public evidence shows (its Cobalt app has no
+  TvProvider code). Aether shows it as "Now Playing" while the session lives, and never as a watch history.
+- **Nuvio** writes Watch Next when playback stops, in `onStop`, and every 15 minutes. Aether watches the tables while in
+  front and reads again 2 and 4 s after coming to the front. Not timed on the TV.
+- **Aurora Store** installs from its official GitLab release (signer pinned). D-pad use of Aurora on Fire OS has known
+  rough edges (Aurora issues #1250, #1545). Google Play isn't normally installable on Fire OS.
+- **Storage** can't show other apps' sizes: that needs Usage Access, which Fire TV has no screen for. Each app's own
+  info screen is offered where the TV has one.
+- **Remote response** with and without building pages in advance is measured in the app (Advanced ▸ Remote response),
+  but no measurement from the M450 exists yet.
+
 ## Fire OS restrictions (confirmed by public sources)
 - **Home button.** Fire OS always routes Home to Amazon's launcher while it is enabled; a preferred-home setting is
   accepted but ignored (verified on the M450). Two owner-chosen workarounds, both set up with adb:
@@ -58,7 +88,9 @@ assumptions** and **workarounds**.
   also work via web URL or the app folder `Android/data/com.aether.tv/files/` (adb push).
 - **Voice search** appears only if a `RecognizerIntent` handler exists; Aether cannot use the remote's Alexa/Assistant
   button.
-- **Icon packs** are not supported yet (icon overrides by URL are).
+- **Icon packs** are not supported yet. Icon overrides by URL are, and so is the CleanFrame symbols style.
+- **Brand symbols** cover 27 services (YouTube, Netflix, Prime Video, Spotify, Disney+, Plex, Kodi and others). Nuvio
+  has no published mark: its symbol is cut from its own icon on the TV, or shown as a monogram.
 - **Usage-based "Recently used"** sorting counts launches made from Aether only (no Usage Access permission needed).
 - **Brand logos and product photos**: app icons are read from the installed apps. The bundled Xbox Series X photo was
   cut out of the owner's own reference screenshots for this personal, non-distributed build (Xbox is a Microsoft

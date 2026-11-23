@@ -42,7 +42,7 @@ class ReviewShotsTest : LauncherUiTest() {
     @Test fun settingsOverviewFocused() { up(); right(5); rest(); down(); right(); shot("a_settings_overview") }
     @Test fun tabFocusVersusSelected() { up(); right(5); rest(); down(); up(); left(); shot("b_tabs_focus_favorites_while_settings_open") }
     @Test fun hiddenSettingsTab() {
-        runBlocking { env.settings.update("default") { s -> s.copy(layout = s.layout.copy(tabs = s.layout.tabs.map { if (it.tab == LauncherTab.Settings) it.copy(visible = false) else it })) } }
+        runBlocking { env.settings.update("default") { s -> s.copy(layout = s.layout.copy(showSettingsTab = false)) } }
         settleUntil { LauncherTab.Settings !in vm.state.value.visibleTabs }
         up(); up(); right(10); ok(); shot("c_settings_via_gear_tab_hidden")
     }
