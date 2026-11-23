@@ -24,6 +24,7 @@ import androidx.compose.ui.graphics.vector.ImageVector
 import androidx.compose.ui.platform.LocalContext
 import androidx.compose.ui.semantics.contentDescription
 import androidx.compose.ui.semantics.semantics
+import androidx.compose.ui.semantics.selected
 import androidx.compose.ui.unit.dp
 import com.aether.tv.core.designsystem.AIcon
 import com.aether.tv.core.designsystem.AText
@@ -82,6 +83,12 @@ fun TopBar(
     onSettings: () -> Unit,
     modifier: Modifier = Modifier,
     weather: com.aether.tv.data.weather.WeatherNow? = null,
+    /** Settings is the page on screen: the ⚙ button shows as selected (it is the only way in when the tab is hidden). */
+    settingsOpen: Boolean = false,
+    settingsRequester: androidx.compose.ui.focus.FocusRequester? = null,
+    /** "Update available" notice (Settings ▸ Updates); null hides the button. */
+    update: String? = null,
+    onUpdate: () -> Unit = {},
 ) {
     val context = LocalContext.current
     val now by rememberMinuteClock()
@@ -103,17 +110,19 @@ fun TopBar(
             }
         }
         Row(horizontalArrangement = Arrangement.spacedBy(6.dp), modifier = Modifier.offset(x = 8.dp)) {
+            if (update != null) TopIcon(AetherIcons.Download, update, onUpdate, badge = true)
             TopIcon(AetherIcons.Search, "Search everything", onSearch)
             if (layout.showNotifications) TopIcon(AetherIcons.Bell, if (hasNotifications) "Notifications (new)" else "Notifications", onNotifications, badge = hasNotifications)
             if (layout.showNetworkStatus) TopIcon(network.icon(), "${network.label}. Quick controls", onNetwork)
-            TopIcon(AetherIcons.Settings, "Open settings", onSettings)
+            TopIcon(AetherIcons.Settings, "Open settings", onSettings, selected = settingsOpen, requester = settingsRequester)
         }
     }
 }
 
 @Composable
-private fun TopIcon(icon: ImageVector, label: String, onClick: () -> Unit, badge: Boolean = false) {
-    GlassTile(onClick = onClick, shape = CircleShape, modifier = Modifier.size(34.dp).semantics { contentDescription = label }, scaleOnFocus = true, restingSurface = false) { focused ->
+private fun TopIcon(icon: ImageVector, label: String, onClick: () -> Unit, badge: Boolean = false, selected: Boolean = false, requester: androidx.compose.ui.focus.FocusRequester? = null) {
+    GlassTile(onClick = onClick, shape = CircleShape, modifier = Modifier.size(34.dp).semantics { contentDescription = label; this.selected = selected },
+        scaleOnFocus = true, restingSurface = selected, selected = selected, focusRequester = requester) { focused ->
         Box(Modifier.fillMaxWidth().padding(7.dp), contentAlignment = Alignment.Center) {
             AIcon(icon, size = 19.dp, tint = if (focused) Aether.colors.textPrimary else Aether.colors.textPrimary.copy(alpha = 0.88f))
         }

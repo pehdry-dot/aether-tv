@@ -94,6 +94,8 @@ data class AetherDimens(
     val screenTop: Dp,
     val gap: Dp,
     val iconScale: Float,
+    /** Text size setting (0.9..1.5): fixed-height elements holding text grow with it so labels never clip. */
+    val textScale: Float = 1f,
 )
 
 @Immutable
@@ -126,6 +128,23 @@ val InterFamily = FontFamily(
     Font(R.font.inter_medium, FontWeight.Medium),
     Font(R.font.inter_semibold, FontWeight.SemiBold),
 )
+
+private fun pair(regular: Int, medium: Int) = FontFamily(Font(regular, FontWeight.Normal), Font(medium, FontWeight.Medium))
+private val OpenSansFamily by lazy { pair(R.font.opensans_regular, R.font.opensans_medium) }
+private val AtkinsonFamily by lazy { pair(R.font.atkinson_regular, R.font.atkinson_medium) }
+private val LexendFamily by lazy { pair(R.font.lexend_regular, R.font.lexend_medium) }
+private val NunitoFamily by lazy { pair(R.font.nunito_regular, R.font.nunito_medium) }
+private val SourceSerifFamily by lazy { pair(R.font.sourceserif_regular, R.font.sourceserif_medium) }
+
+fun fontFamily(f: FontChoice): FontFamily = when (f) {
+    FontChoice.Inter -> InterFamily
+    FontChoice.Atkinson -> AtkinsonFamily
+    FontChoice.OpenSans -> OpenSansFamily
+    FontChoice.Lexend -> LexendFamily
+    FontChoice.Nunito -> NunitoFamily
+    FontChoice.SourceSerif -> SourceSerifFamily
+    FontChoice.System -> FontFamily.SansSerif
+}
 
 fun buildTheme(a: AppearanceSettings, b: BehaviorSettings): AetherThemeData {
     val dark = a.theme == ThemeMode.Dark
@@ -173,8 +192,8 @@ fun buildTheme(a: AppearanceSettings, b: BehaviorSettings): AetherThemeData {
         pill = RoundedCornerShape(50),
         tileRadius = r,
     )
-    val family = if (a.font == FontChoice.Inter) InterFamily else FontFamily.SansSerif
-    val s = a.textScale.coerceIn(0.85f, 1.3f)
+    val family = fontFamily(a.font)
+    val s = com.aether.tv.core.model.TextScale.clamp(a.textScale)
     fun st(size: Float, w: FontWeight, ls: Float = 0f, lh: Float = size * 1.25f) = TextStyle(
         fontFamily = family, fontWeight = w, fontSize = (size * s).sp, letterSpacing = ls.sp, lineHeight = (lh * s).sp,
     )
@@ -198,7 +217,7 @@ fun buildTheme(a: AppearanceSettings, b: BehaviorSettings): AetherThemeData {
         motion = AetherMotion(a.animation),
         glass = AetherGlass(a.glassQuality, a.blurRadiusDp.coerceIn(0, 48).dp, a.focusGlow.coerceIn(0f, 1f), a.focusScale.coerceIn(1f, 1.12f)),
         type = type,
-        dimens = AetherDimens(screenH = (48 + b.overscanDp).dp, screenTop = (24 + b.overscanDp / 2).dp, gap = 12.dp, iconScale = a.iconSize.scale),
+        dimens = AetherDimens(screenH = (48 + b.overscanDp).dp, screenTop = (24 + b.overscanDp / 2).dp, gap = 12.dp, iconScale = a.iconSize.scale, textScale = s),
         showLabels = a.showAppLabels,
         monoLogos = a.appLogos == com.aether.tv.core.model.AppLogoStyle.White,
     )

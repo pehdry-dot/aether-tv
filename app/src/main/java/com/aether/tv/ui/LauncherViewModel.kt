@@ -72,12 +72,16 @@ class LauncherViewModel @Inject constructor(
     private val launcher: AppLauncher,
     val backup: BackupManager,
     private val weatherRepo: com.aether.tv.data.weather.WeatherRepository,
+    val assets: com.aether.tv.data.assets.AssetStore,
 ) : AndroidViewModel(app) {
 
     private val context get() = getApplication<Application>()
 
-    private val _overlay = MutableStateFlow<List<Overlay>>(emptyList())
-    val overlay: StateFlow<Overlay?> = _overlay.map { it.lastOrNull() }.stateIn(viewModelScope, SharingStarted.Eagerly, null)
+    private val _overlays = MutableStateFlow<List<OverlayEntry>>(emptyList())
+    private var nextOverlayId = 1L
+    /** Every open overlay, bottom first. All stay composed (so a dialog keeps its edits under a picker); only the top shows. */
+    val overlays: StateFlow<List<OverlayEntry>> = _overlays.asStateFlow()
+    val overlay: StateFlow<Overlay?> = _overlays.map { it.lastOrNull()?.overlay }.stateIn(viewModelScope, SharingStarted.Eagerly, null)
     private val _notices = MutableSharedFlow<String>(extraBufferCapacity = 4)
     val notices: SharedFlow<String> = _notices
     private val _moveMode = MutableStateFlow<MoveMode?>(null)
@@ -138,6 +142,8 @@ class LauncherViewModel @Inject constructor(
                     if (show) weatherRepo.update(city, unit) else weatherRepo.clear()
                 }
         }
+        // A wallpaper preview can't be open at start: whatever is left in the preview folder was abandoned.
+        viewModelScope.launch(Dispatchers.IO) { assets.clearPreviews() }
         viewModelScope.launch {
             profilesRepo.ensureDefault()
             deviceRepo.seedDefaults()
@@ -160,7 +166,10 @@ class LauncherViewModel @Inject constructor(
     // ---------- lifecycle ----------
     /** Emits when the Home button is pressed while Aether is the default Home app. */
     val homePresses = MutableSharedFlow<Unit>(extraBufferCapacity = 1)
-    fun onHomePressed() { _overlay.value = emptyList(); _moveMode.value = null; homePresses.tryEmit(Unit) }
+    fun onHomePressed() { skipFocusRestore = true; closeAllOverlays(); _moveMode.value = null; homePresses.tryEmit(Unit) }
+
+    /** Set when overlays close because of the Home button: focus goes to Home, not back to what opened them. */
+    @Volatile var skipFocusRestore = false
 
     fun onResume() {
         appRepo.refresh()
@@ -180,9 +189,14 @@ class LauncherViewModel @Inject constructor(
     fun onPause() { weatherLoop?.cancel(); weatherLoop = null }
 
     // ---------- overlays & notices ----------
-    fun show(o: Overlay) { _overlay.value = _overlay.value + o }
-    fun dismissOverlay() { _overlay.value = _overlay.value.dropLast(1) }
-    fun replaceOverlay(o: Overlay) { _overlay.value = _overlay.value.dropLast(1) + o }
+    fun show(o: Overlay) { _overlays.value = _overlays.value + OverlayEntry(nextOverlayId++, o) }
+    fun dismissOverlay() { _overlays.value = _overlays.value.dropLast(1) }
+    fun replaceOverlay(o: Overlay) { _overlays.value = _overlays.value.dropLast(1) + OverlayEntry(nextOverlayId++, o) }
+    fun closeAllOverlays() { _overlays.value = emptyList() }
+    /** Closes the wallpaper preview and the picker under it (Apply). */
+    fun closeWallpaperFlow() {
+        _overlays.value = _overlays.value.dropLastWhile { it.overlay is Overlay.WallpaperPreview || it.overlay is Overlay.WallpaperPicker }
+    }
     fun notice(text: String) { _notices.tryEmit(text) }
 
     private fun handle(r: LaunchResult) { if (r is LaunchResult.Unavailable) show(Overlay.Message("Not available", r.reason)) }
@@ -192,9 +206,23 @@ class LauncherViewModel @Inject constructor(
         viewModelScope.launch { settingsRepo.update(state.value.profileId, transform) }
     }
 
-    // ---------- apps ----------
+    // ---------- navigation ----------
     /** Settings category the Settings page should open next (e.g. from the Home "Inputs" tile). */
     val settingsTarget = MutableStateFlow<String?>(null)
+    private val _navigation = MutableSharedFlow<com.aether.tv.core.model.LauncherTab>(extraBufferCapacity = 4)
+    /** Requests to show a page, collected by the launcher scaffold. */
+    val navigation: SharedFlow<com.aether.tv.core.model.LauncherTab> = _navigation
+
+    /**
+     * Opens Settings at [target] (a category key, optionally "key#anchor"), whether or not the Settings tab is shown.
+     * The Settings page consumes the target only while it is the page on screen.
+     */
+    fun openSettings(target: String? = null) {
+        settingsTarget.value = target
+        _navigation.tryEmit(com.aether.tv.core.model.LauncherTab.Settings)
+    }
+
+    // ---------- apps ----------
 
     fun onAppLongPress(app: AppInfo, scope: MoveScope?) {
         when (state.value.settings.behavior.longPressAction) {
@@ -222,14 +250,19 @@ class LauncherViewModel @Inject constructor(
     fun setGameOverride(app: AppInfo, isGame: Boolean?) = viewModelScope.launch { appRepo.setGameOverride(state.value.profileId, app.key, isGame) }
 
     fun setAppIconFromFile(app: AppInfo, uri: Uri) = viewModelScope.launch {
-        val f = copyToPrivate(uri, "icons", app.packageName) ?: return@launch notice("Couldn't read that image")
+        val f = importAsset(com.aether.tv.data.assets.AssetKind.Icon, app.packageName) { assets.importUri(uri, it) } ?: return@launch
         appRepo.setIcon(state.value.profileId, app.key, "file:${f.path}")
+        assets.deleteUnused(listOf(com.aether.tv.data.assets.AssetKind.Icon))
     }
     fun setAppIconFromUrl(app: AppInfo, url: String) = viewModelScope.launch {
-        val f = download(url, "icons", app.packageName) ?: return@launch notice("Couldn't download that image")
+        val f = importAsset(com.aether.tv.data.assets.AssetKind.Icon, app.packageName) { assets.download(url, it) } ?: return@launch
         appRepo.setIcon(state.value.profileId, app.key, "file:${f.path}")
+        assets.deleteUnused(listOf(com.aether.tv.data.assets.AssetKind.Icon))
     }
-    fun resetAppIcon(app: AppInfo) = viewModelScope.launch { appRepo.setIcon(state.value.profileId, app.key, null) }
+    fun resetAppIcon(app: AppInfo) = viewModelScope.launch {
+        appRepo.setIcon(state.value.profileId, app.key, null)
+        assets.deleteUnused(listOf(com.aether.tv.data.assets.AssetKind.Icon))
+    }
 
     fun addCategory(name: String) = viewModelScope.launch {
         val n = name.trim(); if (n.isEmpty()) return@launch
@@ -252,8 +285,9 @@ class LauncherViewModel @Inject constructor(
     }
     fun editFavorite(f: Favorite, title: String?, art: String?, group: String?) = viewModelScope.launch { favoritesRepo.edit(f.id, title, art, group) }
     fun setFavoriteArtFromUrl(f: Favorite, url: String) = viewModelScope.launch {
-        val file = download(url, "art", "fav-${f.id}") ?: return@launch notice("Couldn't download that image")
+        val file = importAsset(com.aether.tv.data.assets.AssetKind.Art, "fav-${f.id}") { assets.download(url, it) } ?: return@launch
         favoritesRepo.edit(f.id, f.title, "file:${file.path}", f.group)
+        assets.deleteUnused(listOf(com.aether.tv.data.assets.AssetKind.Art))
     }
 
     fun startMove(favoriteId: Long, scope: MoveScope) { _moveMode.value = MoveMode(favoriteId, scope); notice("Use ◀ ▶ to move, OK to finish") }
@@ -328,21 +362,28 @@ class LauncherViewModel @Inject constructor(
 
     /** Downloads a device picture once and returns its local "file:" uri (null on failure). */
     fun importPictureFromUrl(url: String, onDone: (String?) -> Unit) = viewModelScope.launch {
-        val f = download(url, "devices", "device")
-        if (f == null) notice("Couldn't download that image — check the address points directly to a JPG/PNG/WebP")
+        val f = importAsset(com.aether.tv.data.assets.AssetKind.Device, "device") { assets.download(url, it) }
         onDone(f?.let { "file:${it.path}" })
     }
     fun importPictureFromUri(uri: Uri, onDone: (String?) -> Unit) = viewModelScope.launch {
-        val f = copyToPrivate(uri, "devices", "device")
-        if (f == null) notice("Couldn't read that image")
+        val f = importAsset(com.aether.tv.data.assets.AssetKind.Device, "device") { assets.importUri(uri, it) }
         onDone(f?.let { "file:${it.path}" })
     }
     /** Pictures copied into Android/data/<pkg>/files/devices (adb push), no storage permission needed. */
-    fun devicePictureFolder(): File = File(context.getExternalFilesDir(null) ?: context.filesDir, "devices").apply { mkdirs() }
-    fun devicePictureFiles(): List<File> = devicePictureFolder()
-        .listFiles { f -> f.extension.lowercase() in setOf("jpg", "jpeg", "png", "webp") }?.sortedByDescending { it.lastModified() }.orEmpty()
+    fun devicePictureFolder(): File = assets.tvFolder(com.aether.tv.data.assets.AssetKind.Device)
+    fun devicePictureFiles(): List<File> = assets.tvFolderImages(com.aether.tv.data.assets.AssetKind.Device)
     fun setDevicePicture(id: String, uri: String?) = viewModelScope.launch {
         deviceRepo.get(id)?.let { deviceRepo.save(it.copy(artworkUri = uri)) }
+        assets.deleteUnused(listOf(com.aether.tv.data.assets.AssetKind.Device))
+    }
+
+    /** Imports a picture into a new private file of [kind]; explains what went wrong and returns null on failure. */
+    private suspend fun importAsset(kind: com.aether.tv.data.assets.AssetKind, name: String, load: suspend (File) -> com.aether.tv.data.assets.ImportResult): File? {
+        val target = File(assets.dir(kind), "$name-${System.currentTimeMillis()}.img")
+        return when (val r = load(target)) {
+            is com.aether.tv.data.assets.ImportResult.Ok -> r.file
+            is com.aether.tv.data.assets.ImportResult.Failed -> { show(Overlay.Message("Couldn't use that picture", r.reason)); null }
+        }
     }
 
     // ---------- games ----------
@@ -358,8 +399,9 @@ class LauncherViewModel @Inject constructor(
         }
     }
     fun setGameArtFromUrl(g: GameShortcutEntity, url: String) = viewModelScope.launch {
-        val f = download(url, "art", "game-${g.id}") ?: return@launch notice("Couldn't download that image")
+        val f = importAsset(com.aether.tv.data.assets.AssetKind.Art, "game-${g.id}") { assets.download(url, it) } ?: return@launch
         db.games().upsert(g.copy(artworkUri = "file:${f.path}"))
+        assets.deleteUnused(listOf(com.aether.tv.data.assets.AssetKind.Art))
     }
 
     // ---------- media ----------
@@ -385,18 +427,53 @@ class LauncherViewModel @Inject constructor(
     fun deleteProfile(id: String) = viewModelScope.launch { profilesRepo.delete(id); notice("Profile deleted") }
 
     // ---------- wallpaper ----------
-    fun importWallpaper(uri: Uri) = viewModelScope.launch {
-        val f = copyToPrivate(uri, "wallpapers", "wp-${System.currentTimeMillis()}") ?: return@launch notice("Couldn't read that image")
-        updateSettings { it.copy(appearance = it.appearance.copy(wallpaper = "file:${f.path}")) }
-    }
-    fun wallpaperFromUrl(url: String) = viewModelScope.launch {
-        val f = download(url, "wallpapers", "wp-${System.currentTimeMillis()}") ?: return@launch notice("Couldn't download that image")
-        updateSettings { it.copy(appearance = it.appearance.copy(wallpaper = "file:${f.path}")) }
-    }
     /** Images the user copied into the app's folder via adb or a file manager (no storage permission needed). */
-    fun dropFolderImages(): List<File> = File(context.getExternalFilesDir(null) ?: context.filesDir, "wallpapers").apply { mkdirs() }
-        .listFiles { f -> f.extension.lowercase() in setOf("jpg", "jpeg", "png", "webp") }?.sortedByDescending { it.lastModified() }.orEmpty()
-    fun useWallpaperFile(f: File) = updateSettings { it.copy(appearance = it.appearance.copy(wallpaper = "file:${f.path}")) }
+    fun dropFolderImages(): List<File> = assets.tvFolderImages(com.aether.tv.data.assets.AssetKind.Wallpaper)
+    fun wallpaperFolder(): File = assets.tvFolder(com.aether.tv.data.assets.AssetKind.Wallpaper)
+
+    /** Shows [c] full screen. Nothing changes until Apply. */
+    fun previewWallpaper(c: WallpaperCandidate) = show(Overlay.WallpaperPreview(c))
+
+    /** Downloads [url] into the preview folder, then previews it. The current wallpaper is untouched either way. */
+    fun previewWallpaperUrl(url: String) = viewModelScope.launch {
+        notice("Loading the picture…")
+        val f = assets.newPreviewFile()
+        when (val r = assets.download(url, f)) {
+            is com.aether.tv.data.assets.ImportResult.Ok -> previewWallpaper(WallpaperCandidate("file:${r.file.path}", Uri.parse(url.trim()).host ?: "Web picture", WallpaperSource.Web))
+            is com.aether.tv.data.assets.ImportResult.Failed -> show(Overlay.Message("Couldn't load that picture", r.reason + "\n\nYour wallpaper hasn't changed."))
+        }
+    }
+
+    /** A picture chosen with the system file picker, copied into the preview folder first. */
+    fun previewWallpaperUri(uri: Uri) = viewModelScope.launch {
+        val f = assets.newPreviewFile()
+        when (val r = assets.importUri(uri, f)) {
+            is com.aether.tv.data.assets.ImportResult.Ok -> previewWallpaper(WallpaperCandidate("file:${r.file.path}", "Picture from storage", WallpaperSource.Picked))
+            is com.aether.tv.data.assets.ImportResult.Failed -> show(Overlay.Message("Couldn't open that picture", r.reason + "\n\nYour wallpaper hasn't changed."))
+        }
+    }
+
+    /** The preview closed without Apply: a downloaded or picked picture is removed; originals are never touched. */
+    fun discardWallpaperPreview(c: WallpaperCandidate) {
+        if (c.source != WallpaperSource.Web && c.source != WallpaperSource.Picked) return
+        val f = File(c.spec.removePrefix("file:"))
+        if (assets.isPreview(f)) f.delete()
+    }
+
+    /**
+     * Saves [c] as this profile's wallpaper. Pictures from the TV folder are copied (the original stays), previews are
+     * moved into Aether's storage. Aether's copies no profile uses any more are then removed.
+     */
+    fun applyWallpaper(c: WallpaperCandidate) = viewModelScope.launch {
+        val spec = if (c.spec.startsWith("file:")) {
+            val src = File(c.spec.removePrefix("file:"))
+            runCatching { "file:" + assets.adopt(com.aether.tv.data.assets.AssetKind.Wallpaper, src, "wp").path }
+                .getOrElse { show(Overlay.Message("Couldn't save the wallpaper", (it.message ?: "The picture couldn't be copied.") + "\n\nYour wallpaper hasn't changed.")); return@launch }
+        } else c.spec
+        settingsRepo.update(state.value.profileId) { it.copy(appearance = it.appearance.copy(wallpaper = spec)) }
+        assets.deleteUnused(listOf(com.aether.tv.data.assets.AssetKind.Wallpaper))
+        notice("Wallpaper applied")
+    }
 
     // ---------- backup ----------
     fun exportBackup() = viewModelScope.launch {
@@ -418,29 +495,6 @@ class LauncherViewModel @Inject constructor(
             .onFailure { show(Overlay.Message("Restore failed", it.message ?: "The file isn't a valid Aether backup.")) }
     }
     fun resetProfileSettings() = viewModelScope.launch { settingsRepo.replace(state.value.profileId, LauncherSettings()); notice("Settings reset to defaults") }
-
-    // ---------- files ----------
-    private suspend fun copyToPrivate(uri: Uri, dir: String, name: String): File? = withContext(Dispatchers.IO) {
-        runCatching {
-            val out = File(File(context.filesDir, dir).apply { mkdirs() }, "$name-${System.currentTimeMillis()}.img")
-            context.contentResolver.openInputStream(uri)!!.use { i -> out.outputStream().use { i.copyTo(it) } }
-            out
-        }.getOrNull()
-    }
-
-    private suspend fun download(url: String, dir: String, name: String): File? = withContext(Dispatchers.IO) {
-        runCatching {
-            val req = okhttp3.Request.Builder().url(url.trim()).build()
-            com.aether.tv.data.media.JsonHttp.defaultClient.newCall(req).execute().use { r ->
-                require(r.isSuccessful)
-                val type = r.header("Content-Type").orEmpty()
-                require(type.startsWith("image/")) { "Not an image" }
-                val bytes = r.body!!.bytes()
-                require(bytes.size < 15 * 1024 * 1024)
-                File(File(context.filesDir, dir).apply { mkdirs() }, "$name-${System.currentTimeMillis()}.img").apply { writeBytes(bytes) }
-            }
-        }.getOrNull()
-    }
 
     fun gameKindsFor(app: AppInfo): GameKind? = app.gameKind
 

@@ -137,7 +137,8 @@ class TestEnv(val apps: List<InstalledApp> = DemoApps.installed()) {
         override suspend fun current(place: com.aether.tv.data.weather.Place, fahrenheit: Boolean) =
             com.aether.tv.data.weather.Conditions(if (fahrenheit) 57.0 else 14.0, 3, isDay = true)
     })
-    fun viewModel() = LauncherViewModel(context, profiles, settings, appRepo, favorites, devices, media, db, NetworkMonitor(context), shortcuts, platform, inputs, launcher, backup, weather)
+    val assets = com.aether.tv.data.assets.AssetStore(context, db, settings)
+    fun viewModel() = LauncherViewModel(context, profiles, settings, appRepo, favorites, devices, media, db, NetworkMonitor(context), shortcuts, platform, inputs, launcher, backup, weather, assets)
 
     fun close() = db.close()
 }

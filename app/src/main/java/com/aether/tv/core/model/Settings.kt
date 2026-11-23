@@ -67,7 +67,16 @@ enum class AccentColor(val argb: Long, val label: String) {
 
 @Serializable enum class IconSize(val scale: Float, val label: String) { Small(0.85f, "Small"), Medium(1f, "Medium"), Large(1.18f, "Large") }
 @Serializable enum class AppLogoStyle(val label: String) { White("White logos"), Original("Original colours") }
-@Serializable enum class FontChoice(val label: String) { Inter("Inter"), System("System sans-serif") }
+/** Typefaces. All but System are bundled (SIL OFL 1.1, licenses/), so they look the same on every TV. */
+@Serializable enum class FontChoice(val label: String, val description: String) {
+    Inter("Inter", "Aether's default: neutral and compact"),
+    Atkinson("Atkinson Hyperlegible", "Made for low vision: the clearest letters from the couch"),
+    OpenSans("Open Sans", "Friendly and open, very readable"),
+    Lexend("Lexend", "Wide letters with generous spacing"),
+    Nunito("Nunito", "Rounded and soft"),
+    SourceSerif("Source Serif", "A serif for a classic, editorial look"),
+    System("System sans-serif", "The TV's own font"),
+}
 @Serializable enum class AnimationLevel(val label: String) { Full("Full"), Reduced("Reduced"), Off("Off") }
 
 @Serializable
@@ -116,10 +125,51 @@ data class HomeLayoutSettings(
     val showPageTitle: Boolean = true,
     /** Favorites page: grouped dashboard (true) or one simple grid (false). */
     val favoritesGrouped: Boolean = true,
+    /**
+     * False in profiles saved before the Settings tab could be hidden. Those versions always showed Settings whatever
+     * was stored, so [LauncherSettings.normalized] shows it once and sets this.
+     */
+    val settingsTabHideable: Boolean = false,
 )
 
+/** Tabs shown in the tab row, in order. Home is always shown; every other tab, Settings included, can be hidden. */
+fun HomeLayoutSettings.visibleTabs(): List<LauncherTab> = tabs.filter { it.visible || it.tab == LauncherTab.Home }.map { it.tab }
+
+/**
+ * Repairs and upgrades settings read from storage, a backup or another profile:
+ * every tab listed exactly once (new tabs appended), Home visible, Settings visible in profiles from before it could be
+ * hidden, the start tab one that is shown, and values clamped to their ranges.
+ */
+fun LauncherSettings.normalized(): LauncherSettings {
+    val l = layout
+    val seen = HashSet<LauncherTab>()
+    var tabs = l.tabs.filter { seen.add(it.tab) } + LauncherTab.entries.filter { it !in seen }.map { TabConfig(it) }
+    tabs = tabs.map {
+        when {
+            it.tab == LauncherTab.Home -> it.copy(visible = true)
+            it.tab == LauncherTab.Settings && !l.settingsTabHideable -> it.copy(visible = true)
+            else -> it
+        }
+    }
+    val fixedLayout = l.copy(tabs = tabs, settingsTabHideable = true).let { fl ->
+        if (fl.defaultTab in fl.visibleTabs()) fl else fl.copy(defaultTab = LauncherTab.Home)
+    }
+    val a = appearance
+    val fixedAppearance = a.copy(textScale = TextScale.clamp(a.textScale))
+    return if (fixedLayout == l && fixedAppearance == a) this else copy(layout = fixedLayout, appearance = fixedAppearance)
+}
+
+/** Text size: 90–150 % in 5 % steps (Appearance ▸ Typography). */
+object TextScale {
+    const val MIN = 0.9f
+    const val MAX = 1.5f
+    const val STEP = 0.05f
+    const val DEFAULT = 1.0f
+    fun clamp(v: Float): Float = (Math.round(v.coerceIn(MIN, MAX) / STEP) * STEP).coerceIn(MIN, MAX)
+}
+
 @Serializable enum class LongPressAction(val label: String) { Options("Options menu"), AppInfo("App info"), Nothing("Do nothing") }
-@Serializable enum class TabActivation(val label: String) { Focus("When focused"), Select("When selected (OK)") }
+@Serializable enum class TabActivation(val label: String) { Focus("When focused"), Select("On click (OK)") }
 @Serializable enum class SearchScope(val label: String) { All("Everything"), Apps("Apps only") }
 
 @Serializable

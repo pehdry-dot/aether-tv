@@ -44,6 +44,15 @@ import androidx.compose.ui.focus.FocusRequester
 import androidx.compose.ui.focus.focusRestorer
 import androidx.compose.ui.focus.focusRequester
 import androidx.compose.ui.focus.onFocusChanged
+import androidx.compose.ui.focus.FocusDirection
+import androidx.compose.foundation.background
+import androidx.compose.runtime.SideEffect
+import androidx.compose.runtime.mutableIntStateOf
+import androidx.compose.runtime.withFrameNanos
+import com.aether.tv.core.designsystem.FocusLayer
+import com.aether.tv.core.designsystem.LocalFocusLayer
+import com.aether.tv.core.designsystem.tryFocus
+import com.aether.tv.core.designsystem.dpadEntry
 import androidx.compose.ui.platform.LocalContext
 import androidx.compose.ui.semantics.contentDescription
 import androidx.compose.ui.semantics.selected
@@ -58,7 +67,6 @@ import com.aether.tv.core.designsystem.AetherTheme
 import com.aether.tv.core.designsystem.GlassPanel
 import com.aether.tv.core.designsystem.GlassTile
 import com.aether.tv.core.designsystem.InputBehavior
-import com.aether.tv.core.designsystem.FocusMemory
 import com.aether.tv.core.designsystem.WallpaperHost
 import com.aether.tv.core.model.GlassQuality
 import com.aether.tv.core.model.LauncherTab
@@ -86,7 +94,7 @@ fun LauncherTab.icon() = when (this) {
 @Composable
 fun LauncherApp(vm: LauncherViewModel) {
     val state by vm.state.collectAsStateWithLifecycle()
-    val overlay by vm.overlay.collectAsStateWithLifecycle()
+    val stack by vm.overlays.collectAsStateWithLifecycle()
     val s = state.settings
     LaunchedEffect(s.behavior) {
         InputBehavior.menuKeyOpensOptions = s.behavior.menuKeyOpensOptions
@@ -99,57 +107,108 @@ fun LauncherApp(vm: LauncherViewModel) {
             blurEnabled = s.appearance.glassQuality == GlassQuality.Auto && s.appearance.blurRadiusDp > 0,
             animated = s.appearance.animatedWallpaper,
         ) {
-            // Focus returns to whatever was focused before an overlay opened (focusRestorer remembers it).
-            val scaffoldFocus = remember { FocusRequester() }
-            var hadOverlay by remember { mutableStateOf(false) }
-            var restoreTo by remember { mutableStateOf<FocusRequester?>(null) }
-            LaunchedEffect(overlay == null) {
-                if (overlay != null && !hadOverlay) restoreTo = FocusMemory.last
-                if (overlay == null && hadOverlay) {
-                    delay(16)
-                    val ok = restoreTo?.let { r -> runCatching { r.requestFocus() }.isSuccess } ?: false
-                    if (!ok) runCatching { scaffoldFocus.requestFocus() }
-                    restoreTo = null
+            // The launcher is one focus layer; while any overlay is open nothing in it can take focus, so the remote
+            // can't wander behind a dialog. Closing an overlay puts focus back on whatever opened it (OverlayHost).
+            val launcherLayer = remember { FocusLayer("launcher") }
+            SideEffect { launcherLayer.setActive(stack.isEmpty()) }
+            val nav = remember { LauncherNav() }
+            CompositionLocalProvider(LocalFocusLayer provides launcherLayer) {
+                Box(Modifier.fillMaxSize().focusGroup()) {
+                    if (state.ready) LauncherScaffold(state, vm, overlayOpen = stack.isNotEmpty(), nav)
                 }
-                hadOverlay = overlay != null
             }
-            Box(Modifier.fillMaxSize().focusRequester(scaffoldFocus).focusRestorer().focusGroup()) {
-                if (state.ready) LauncherScaffold(state, vm, overlayOpen = overlay != null)
-            }
-            OverlayHost(overlay, state, vm)
+            OverlayHost(stack, state, vm, onNothingToRestore = { nav.focusCurrent() })
             NoticeHost(vm)
             PicturePickerHost(vm)
         }
     }
 }
 
+/** Lets the overlay host put focus somewhere sensible when what opened an overlay is gone. */
+internal class LauncherNav { var focusCurrent: () -> Unit = {} }
+
+/** Pure navigation rules (unit-tested). */
+object NavRules {
+    /** Tab shown at start: the profile's start tab when it is visible, else Home. */
+    fun startTab(defaultTab: LauncherTab, visible: List<LauncherTab>): LauncherTab = if (defaultTab in visible) defaultTab else LauncherTab.Home
+
+    /**
+     * The page to show for [current]. A hidden tab's page can't stay open, except Settings: it is still reachable from
+     * the ⚙ button with its tab hidden, so it is shown "detached" from the tab row.
+     */
+    fun resolve(current: LauncherTab, visible: List<LauncherTab>): LauncherTab =
+        if (current in visible || current == LauncherTab.Settings) current else LauncherTab.Home
+}
+
 @Composable
-private fun LauncherScaffold(state: LauncherUiState, vm: LauncherViewModel, overlayOpen: Boolean) {
+private fun LauncherScaffold(state: LauncherUiState, vm: LauncherViewModel, overlayOpen: Boolean, nav: LauncherNav) {
     val layout = state.settings.layout
     val behavior = state.settings.behavior
     val tabs = state.visibleTabs
-    var tab by rememberSaveable { mutableStateOf(layout.defaultTab) }
-    if (tab !in tabs) tab = LauncherTab.Home
+    var tab by rememberSaveable { mutableStateOf(NavRules.startTab(layout.defaultTab, tabs)) }
+    // Last tab that has a place in the tab row: Back from a detached Settings page returns there.
+    var previous by rememberSaveable { mutableStateOf(LauncherTab.Home) }
+    val resolved = NavRules.resolve(tab, tabs)
+    if (resolved != tab) tab = resolved
     val tabRequesters = remember(tabs) { tabs.associateWith { FocusRequester() } }
+    val gearRequester = remember { FocusRequester() }
     val contentEntry = remember { FocusRequester() }
+    val settingsEntry = remember { FocusRequester() }
     var contentHasFocus by remember { mutableStateOf(false) }
-    var tabsHaveFocus by remember { mutableStateOf(false) }
+    var pendingSettingsFocus by remember { mutableStateOf(false) }
+    var homeReset by remember { mutableIntStateOf(0) }
     val moveMode by vm.moveMode.collectAsStateWithLifecycle()
     val activity = androidx.activity.compose.LocalActivity.current
     val motion = Aether.motion
+    val launcherLayer = LocalFocusLayer.current
+    val pageLayers = remember { HashMap<LauncherTab, FocusLayer>() }
+    val pageEntries = remember { LauncherTab.entries.associateWith { FocusRequester() } }
 
     /** Pages built so far (kept alive afterwards; see the page container below). */
     val built = remember { mutableStateListOf(tab) }
 
+    fun focusTab(t: LauncherTab): Boolean = tabRequesters[t]?.tryFocus() ?: false
+
     fun select(t: LauncherTab, focusTab: Boolean) {
+        if (t != tab && tab in tabs) previous = tab
         tab = t
-        if (focusTab) runCatching { tabRequesters[t]?.requestFocus() }
+        if (!focusTab) return
+        if (t in tabs) runCatching { tabRequesters[t]?.requestFocus() }
+        else if (t == LauncherTab.Settings) pendingSettingsFocus = true // detached: focus goes into the page itself
+    }
+
+    nav.focusCurrent = {
+        if (!(tab in tabs && focusTab(tab)) && !(tab == LauncherTab.Settings && settingsEntry.tryFocus())) focusTab(LauncherTab.Home)
+    }
+
+    // The Home button while Aether is in front (default Home app, or brought back by the Home button service):
+    // overlays and move mode are already closed by the view model; show Home from the top with its first item focused.
+    LaunchedEffect(Unit) {
+        vm.homePresses.collect {
+            select(LauncherTab.Home, focusTab = false)
+            homeReset++
+            withFrameNanos { }
+            withFrameNanos { }
+            if (!contentEntry.tryFocus()) focusTab(LauncherTab.Home)
+        }
+    }
+    // Other screens asking for a page (Search ▸ Settings ▸ …, Home ▸ Inputs, Continue Watching setup).
+    LaunchedEffect(Unit) {
+        vm.navigation.collect { t -> select(t, focusTab = t != LauncherTab.Settings || vm.settingsTarget.value == null) }
+    }
+    // The ⚙ button with the Settings tab hidden: there is no tab to focus, so focus goes into the page once it's placed.
+    LaunchedEffect(pendingSettingsFocus, tab) {
+        if (!pendingSettingsFocus || tab != LauncherTab.Settings) return@LaunchedEffect
+        repeat(6) { withFrameNanos { }; if (settingsEntry.tryFocus()) { pendingSettingsFocus = false; return@LaunchedEffect } }
+        pendingSettingsFocus = false
+        gearRequester.tryFocus()
     }
 
     BackHandler(enabled = !overlayOpen) {
         when {
             moveMode != null -> vm.endMove()
-            contentHasFocus -> runCatching { tabRequesters[tab]?.requestFocus() }
+            // From inside a page to its tab; a detached Settings page goes back to the tab you came from.
+            contentHasFocus -> if (tab in tabs) focusTab(tab) else select(previous.takeIf { it in tabs } ?: LauncherTab.Home, focusTab = true)
             tab != LauncherTab.Home && behavior.backGoesHome -> select(LauncherTab.Home, focusTab = true)
             vm.platform.isDefaultHome() -> Unit // We are Home: nothing to go back to.
             else -> activity?.moveTaskToBack(true)
@@ -171,6 +230,8 @@ private fun LauncherScaffold(state: LauncherUiState, vm: LauncherViewModel, over
             onNetwork = { vm.show(Overlay.QuickControls) },
             onSettings = { select(LauncherTab.Settings, focusTab = true) },
             weather = vm.weather.collectAsStateWithLifecycle().value,
+            settingsOpen = tab == LauncherTab.Settings,
+            settingsRequester = gearRequester,
         )
         if (layout.showPageTitle) {
             Spacer(Modifier.height(16.dp))
@@ -182,13 +243,15 @@ private fun LauncherScaffold(state: LauncherUiState, vm: LauncherViewModel, over
             selected = tab,
             requesters = tabRequesters,
             activation = behavior.tabActivation,
-            onSelect = { tab = it },
-            modifier = Modifier.onFocusChanged { tabsHaveFocus = it.hasFocus },
+            onSelect = { select(it, focusTab = false) },
+            // OK on the open tab: into the page, at its first item (or the item a row remembers).
+            onEnterPage = { pageEntries[tab]?.tryFocus() },
         )
         Spacer(Modifier.height(20.dp))
         // Pages stay composed once built: building one took 0.3–0.45 s on the M450's 32-bit CPU, every tab switch.
         // Hidden pages are composed but not placed, so they're not drawn, D-pad focus search skips them (Compose only
-        // considers placed nodes) and they're removed from the accessibility tree.
+        // considers placed nodes) and they're removed from the accessibility tree. Each page is its own focus layer, so
+        // nothing in a hidden page can be given focus either (a delayed request, a restore, a deep link).
         LaunchedEffect(tab) { if (tab !in built) built.add(tab) }
         val pages = if (tab in built) built.toList() else built.toList() + tab
         Box(
@@ -201,6 +264,8 @@ private fun LauncherScaffold(state: LauncherUiState, vm: LauncherViewModel, over
             pages.forEach { page ->
                 key(page) {
                     val active = page == tab
+                    val pageLayer = remember { pageLayers.getOrPut(page) { FocusLayer("page ${page.name}", launcherLayer) } }
+                    SideEffect { pageLayer.setActive(active) }
                     remember { PagePrewarm.builds[page] = (PagePrewarm.builds[page] ?: 0) + 1 }
                     val alpha = remember { Animatable(if (active) 1f else 0f) }
                     LaunchedEffect(active) {
@@ -214,6 +279,8 @@ private fun LauncherScaffold(state: LauncherUiState, vm: LauncherViewModel, over
                     Box(
                         Modifier
                             .fillMaxSize()
+                            .focusRequester(pageEntries.getValue(page))
+                            .focusGroup()
                             .then(if (active) Modifier else Modifier.clearAndSetSemantics {})
                             .layout { measurable, constraints ->
                                 val placeable = measurable.measure(constraints)
@@ -222,14 +289,14 @@ private fun LauncherScaffold(state: LauncherUiState, vm: LauncherViewModel, over
                                 }
                             },
                     ) {
-                        CompositionLocalProvider(LocalPageActive provides active) {
+                        CompositionLocalProvider(LocalPageActive provides active, LocalFocusLayer provides pageLayer) {
                             when (page) {
-                                LauncherTab.Home -> HomePage(state, vm, initialFocus = contentEntry, onOpenTab = { select(it, focusTab = true) })
+                                LauncherTab.Home -> HomePage(state, vm, initialFocus = contentEntry, onOpenTab = { select(it, focusTab = true) }, resetKey = homeReset)
                                 LauncherTab.Apps -> AppsPage(state, vm)
                                 LauncherTab.Media -> MediaPage(state, vm)
                                 LauncherTab.Games -> GamesPage(state, vm)
                                 LauncherTab.Favorites -> FavoritesPage(state, vm)
-                                LauncherTab.Settings -> SettingsPage(state, vm)
+                                LauncherTab.Settings -> SettingsPage(state, vm, entry = settingsEntry)
                             }
                         }
                     }
@@ -247,7 +314,12 @@ private fun LauncherScaffold(state: LauncherUiState, vm: LauncherViewModel, over
         for (t in LauncherTab.entries) {
             if (t in built || t !in currentTabs) continue
             while (SystemClock.uptimeMillis() - UserActivity.lastKeyAt < PagePrewarm.IDLE_MS) delay(250)
-            if (t !in built) built.add(t)
+            if (t !in built) {
+                PagePrewarm.building = t
+                built.add(t)
+                withFrameNanos { }
+                PagePrewarm.building = null
+            }
             delay(PagePrewarm.GAP_MS)
         }
     }
@@ -257,12 +329,10 @@ private fun LauncherScaffold(state: LauncherUiState, vm: LauncherViewModel, over
     LaunchedEffect(state.apps != null) {
         if (!initialFocusDone && state.apps != null) {
             delay(60)
-            val ok = runCatching { if (tab == LauncherTab.Home) contentEntry.requestFocus() else tabRequesters[tab]?.requestFocus() }.isSuccess
-            initialFocusDone = ok
-            if (!ok) runCatching { tabRequesters[tab]?.requestFocus() }
+            initialFocusDone = if (tab == LauncherTab.Home) contentEntry.tryFocus() else focusTab(tab)
+            if (!initialFocusDone) focusTab(tab)
         }
     }
-    @Suppress("UNUSED_VARIABLE") val unused = tabsHaveFocus
 }
 
 /** True for the page currently shown; false for pages kept alive in the background (see LauncherScaffold). */
@@ -275,7 +345,10 @@ object UserActivity {
 
 /** Building hidden pages ahead of time. Tests switch it off so they control when pages are built. */
 internal object PagePrewarm {
+    /** Settings ▸ Advanced ▸ "Build pages in advance" (and tests) switch this off. */
     @Volatile var enabled = true
+    /** The page being built in the background right now, if any (latency diagnostics). */
+    @Volatile var building: LauncherTab? = null
     /** How many times each page has been built in this process (diagnostics and tests). */
     val builds = java.util.concurrent.ConcurrentHashMap<LauncherTab, Int>()
     const val START_MS = 2_500L
@@ -286,6 +359,10 @@ internal object PagePrewarm {
 /** How long focus must rest on a tab before "When focused" switches the page. */
 internal const val TAB_SETTLE_MS = 220L
 
+/**
+ * The tab row. The tab that will receive OK is a solid pill; the page that's showing keeps a glass pill.
+ * OK on another tab opens it (in both activation modes); OK on the tab that's already open moves into its page.
+ */
 @Composable
 private fun NavTabs(
     tabs: List<LauncherTab>,
@@ -293,9 +370,9 @@ private fun NavTabs(
     requesters: Map<LauncherTab, FocusRequester>,
     activation: TabActivation,
     onSelect: (LauncherTab) -> Unit,
+    onEnterPage: () -> Unit,
     modifier: Modifier = Modifier,
 ) {
-    val fallback = requesters[selected] ?: FocusRequester.Default
     // "When focused" switches the page only once focus rests on a tab. Sweeping from Home to Settings used to build,
     // draw and cross-fade every page on the way (measured as the roughest part of navigation on the M450).
     var resting by remember { mutableStateOf<LauncherTab?>(null) }
@@ -308,14 +385,15 @@ private fun NavTabs(
         currentOnSelect(t)
     }
     Row(
-        modifier.focusRestorer(fallback).focusGroup(),
+        // Up from a page lands on the tab of the page you're on; a programmatic request for a tab is never redirected.
+        modifier.dpadEntry { requesters[currentSelected] ?: requesters[LauncherTab.Home] }.focusGroup(),
         horizontalArrangement = Arrangement.spacedBy(6.dp),
         verticalAlignment = Alignment.CenterVertically,
     ) {
         tabs.forEach { t ->
             val isSel = t == selected
             GlassTile(
-                onClick = { onSelect(t) },
+                onClick = { if (t == currentSelected) onEnterPage() else currentOnSelect(t) },
                 shape = Aether.shapes.pill,
                 focusRequester = requesters[t],
                 selected = isSel,
@@ -324,8 +402,18 @@ private fun NavTabs(
                 onFocus = { f -> if (f) resting = t else if (resting == t) resting = null },
                 modifier = Modifier.semantics { contentDescription = t.label; this.selected = isSel },
             ) { focused ->
-                Row(Modifier.padding(horizontal = 18.dp, vertical = 7.dp), verticalAlignment = Alignment.CenterVertically) {
-                    val c = if (isSel || focused) Aether.colors.textPrimary else Aether.colors.textPrimary.copy(alpha = 0.82f)
+                val solid = Aether.colors.textPrimary
+                Row(
+                    Modifier
+                        .then(if (focused) Modifier.background(solid.copy(alpha = 0.94f), Aether.shapes.pill) else Modifier)
+                        .padding(horizontal = 18.dp, vertical = 7.dp),
+                    verticalAlignment = Alignment.CenterVertically,
+                ) {
+                    val c = when {
+                        focused -> Aether.colors.base
+                        isSel -> Aether.colors.textPrimary
+                        else -> Aether.colors.textPrimary.copy(alpha = 0.82f)
+                    }
                     AIcon(t.icon(), size = 18.dp, tint = c)
                     Spacer(Modifier.width(10.dp))
                     AText(t.label, Aether.type.nav, color = c)

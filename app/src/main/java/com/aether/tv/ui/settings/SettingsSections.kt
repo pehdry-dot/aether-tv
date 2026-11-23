@@ -32,6 +32,7 @@ import com.aether.tv.core.model.GlassQuality
 import com.aether.tv.core.model.IconSize
 import com.aether.tv.core.model.LauncherSettings
 import com.aether.tv.core.model.LauncherTab
+import com.aether.tv.core.model.visibleTabs
 import com.aether.tv.core.model.LibraryView
 import com.aether.tv.core.model.LongPressAction
 import com.aether.tv.core.model.SearchScope
@@ -60,6 +61,7 @@ import kotlin.math.roundToInt
 fun SettingsDetail(cat: SettingsCategory, state: LauncherUiState, vm: LauncherViewModel, first: FocusRequester) {
     LazyColumn(verticalArrangement = Arrangement.spacedBy(6.dp), contentPadding = PaddingValues(bottom = 20.dp)) {
         when (cat) {
+            SettingsCategory.Overview -> Unit // its own dashboard (SettingsPage)
             SettingsCategory.Appearance -> appearance(state, vm, first)
             SettingsCategory.HomeLayout -> homeLayout(state, vm, first)
             SettingsCategory.Behavior -> behavior(state, vm, first)
@@ -88,11 +90,9 @@ private fun pct(v: Float) = "${(v * 100).roundToInt()}%"
 private fun LazyListScope.appearance(state: LauncherUiState, vm: LauncherViewModel, first: FocusRequester) {
     val a = state.settings.appearance
     item("wp") {
-        val wpName = BuiltinWallpaper.entries.firstOrNull { "builtin:${it.id}" == a.wallpaper }?.label ?: if (a.wallpaper.startsWith("solid:")) "Solid color" else "Custom image"
-        OptionRow("Wallpaper", { vm.show(wallpaperPicker(vm)) }, icon = AetherIcons.Image, detail = wpName, chevron = true, focusRequester = first)
+        OptionRow("Wallpaper", { vm.show(Overlay.WallpaperPicker) }, icon = AetherIcons.Image, detail = wallpaperLabel(a.wallpaper) + " • preview before applying",
+            chevron = true, focusRequester = first)
     }
-    item("wpImport") { WallpaperImportRow(vm) }
-    item("wpUrl") { OptionRow("Wallpaper from web address", { vm.show(Overlay.TextInput("Image URL", "https://", "JPEG/PNG/WebP, up to 15 MB")  { vm.wallpaperFromUrl(it) }) }, icon = AetherIcons.Globe) }
     item("g1") { GroupLabel("Theme") }
     item("theme") { ChoiceRow("Theme", ThemeMode.entries, a.theme, { it.name }, { v -> vm.appearance { it.copy(theme = v) } }, icon = AetherIcons.Palette) }
     item("accent") { ChoiceRow("Accent color", AccentColor.entries, a.accent, { it.label }, { v -> vm.appearance { it.copy(accent = v) } }, icon = AetherIcons.Square) }
@@ -112,39 +112,10 @@ private fun LazyListScope.appearance(state: LauncherUiState, vm: LauncherViewMod
     item("icon") { ChoiceRow("Icon size", IconSize.entries, a.iconSize, { it.label }, { v -> vm.appearance { it.copy(iconSize = v) } }, icon = AetherIcons.AppsGrid) }
     item("labels") { ToggleRow("Show app names", a.showAppLabels, { v -> vm.appearance { it.copy(showAppLabels = v) } }, icon = AetherIcons.Tag) }
     item("banners") { ToggleRow("Use app banners", state.settings.library.useBanners, { v -> vm.library { it.copy(useBanners = v) } }, detail = "Wide TV banners instead of icons, where apps provide them", icon = AetherIcons.AppWindow) }
-    item("font") { ChoiceRow("Typeface", FontChoice.entries, a.font, { it.label }, { v -> vm.appearance { it.copy(font = v) } }, icon = AetherIcons.TextSize) }
-    item("textScale") { SliderRow("Text size", a.textScale, 0.9f..1.3f, 0.05f, { v -> vm.appearance { it.copy(textScale = v) } }, ::pct) }
+    item("typography") { OptionRow("Typography", { vm.show(Overlay.Typography) }, icon = AetherIcons.TextSize, detail = "${a.font.label} • ${pct(a.textScale)} text size", chevron = true) }
     item("g5") { GroupLabel("Motion") }
     item("anim") { ChoiceRow("Animations", AnimationLevel.entries, a.animation, { it.label }, { v -> vm.appearance { it.copy(animation = v) } }, icon = AetherIcons.Move, detail = "Reduced or Off also disables focus zoom") }
     item("animWp") { ToggleRow("Animated wallpaper", a.animatedWallpaper, { v -> vm.appearance { it.copy(animatedWallpaper = v) } }, detail = "Very slow drift. Uses a little GPU continuously.", icon = AetherIcons.Sun) }
-}
-
-private fun wallpaperPicker(vm: LauncherViewModel): Overlay {
-    val dropped = vm.dropFolderImages()
-    val builtins = BuiltinWallpaper.entries
-    val solids = listOf("Midnight" to "FF0E1620", "Graphite" to "FF1C1F24", "Deep blue" to "FF0B1E3A")
-    val labels = builtins.map { it.label } + solids.map { "Solid · ${it.first}" } + dropped.map { "Folder · ${it.name}" }
-    return Overlay.Choice("Wallpaper", labels, -1) { i ->
-        when {
-            i < builtins.size -> vm.updateSettings { it.copy(appearance = it.appearance.copy(wallpaper = "builtin:${builtins[i].id}")) }
-            i < builtins.size + solids.size -> vm.updateSettings { it.copy(appearance = it.appearance.copy(wallpaper = "solid:${solids[i - builtins.size].second}")) }
-            else -> vm.useWallpaperFile(dropped[i - builtins.size - solids.size])
-        }
-    }
-}
-
-@Composable
-private fun WallpaperImportRow(vm: LauncherViewModel) {
-    val context = LocalContext.current
-    val picker = rememberLauncherForActivityResult(ActivityResultContracts.OpenDocument()) { uri -> uri?.let { vm.importWallpaper(it) } }
-    val hasPicker = remember { Intent(Intent.ACTION_OPEN_DOCUMENT).addCategory(Intent.CATEGORY_OPENABLE).setType("image/*").resolveActivity(context.packageManager) != null }
-    val folder = remember { java.io.File(context.getExternalFilesDir(null) ?: context.filesDir, "wallpapers").path }
-    OptionRow(
-        if (hasPicker) "Import wallpaper from storage" else "Import wallpaper",
-        { if (hasPicker) picker.launch(arrayOf("image/*")) else vm.show(Overlay.Message("Import a wallpaper", "This TV has no file picker. Copy an image to:\n\n$folder\n\nfor example with:\nadb push photo.jpg $folder/\n\nThen choose it under Wallpaper ▸ Folder.")) },
-        icon = AetherIcons.Folder,
-        detail = if (hasPicker) "Choose an image with the system file picker" else "No file picker on this TV — see instructions",
-    )
 }
 
 // ------------------------------------------------------------------------------------------------ Home layout
@@ -166,17 +137,29 @@ private fun LazyListScope.homeLayout(state: LauncherUiState, vm: LauncherViewMod
     item("g1") { GroupLabel("Navigation tabs — OK shows/hides, ◀ ▶ reorders") }
     l.tabs.forEachIndexed { i, cfg ->
         item("tab-${cfg.tab}") {
-            val locked = cfg.tab == LauncherTab.Home || cfg.tab == LauncherTab.Settings
+            val locked = cfg.tab == LauncherTab.Home
+            val settingsTab = cfg.tab == LauncherTab.Settings
             OptionRow(
                 cfg.tab.label,
                 { if (!locked) vm.layout { s -> s.copy(tabs = s.tabs.map { if (it.tab == cfg.tab) it.copy(visible = !it.visible) else it }) } },
                 icon = if (cfg.visible || locked) AetherIcons.Eye else AetherIcons.EyeOff,
-                detail = if (locked) "Always shown" else if (cfg.visible) "Shown" else "Hidden",
+                detail = when {
+                    locked -> "Always shown"
+                    settingsTab && cfg.visible -> "Shown • the ⚙ button at the top right also opens Settings"
+                    settingsTab -> "Hidden • open Settings with the ⚙ button at the top right"
+                    cfg.visible -> "Shown"
+                    else -> "Hidden"
+                },
+                stateText = if (cfg.visible || locked) "Shown" else "Hidden",
                 onKey = { code -> reorderKey(code) { d -> vm.layout { s -> s.copy(tabs = s.tabs.moved(i, d)) } } },
             )
         }
     }
-    item("default") { ChoiceRow("Start on tab", LauncherTab.entries, l.defaultTab, { it.label }, { v -> vm.layout { it.copy(defaultTab = v) } }, icon = AetherIcons.Home) }
+    item("default") {
+        val startTabs = l.visibleTabs()
+        ChoiceRow("Start on tab", startTabs, l.defaultTab.takeIf { it in startTabs } ?: LauncherTab.Home, { it.label }, { v -> vm.layout { it.copy(defaultTab = v) } }, icon = AetherIcons.Home,
+            detail = "Only tabs that are shown can be the start tab")
+    }
     item("g2") { GroupLabel("Rows") }
     item("count") { SliderRow("Favorite app shortcuts", l.appShortcutCount.toFloat(), 4f..12f, 1f, { v -> vm.layout { it.copy(appShortcutCount = v.roundToInt()) } }, { "${it.roundToInt()}" }) }
     item("allApps") { ToggleRow("“All Apps” tile", l.showAllAppsTile, { v -> vm.layout { it.copy(showAllAppsTile = v) } }) }

@@ -65,9 +65,11 @@ fun fillWidth(total: Dp, count: Int, gap: Dp): Dp = if (count <= 0) total else (
 fun Modifier.rowFocus(enabled: Boolean): Modifier = if (enabled) this.focusRestorer().focusGroup() else this.focusGroup()
 
 @Composable
-fun HomePage(state: LauncherUiState, vm: LauncherViewModel, initialFocus: FocusRequester, onOpenTab: (LauncherTab) -> Unit) {
+fun HomePage(state: LauncherUiState, vm: LauncherViewModel, initialFocus: FocusRequester, onOpenTab: (LauncherTab) -> Unit, resetKey: Int = 0) {
     val layout = state.settings.layout
     val scroll = rememberScrollState()
+    // The Home button: back to the top of Home.
+    androidx.compose.runtime.LaunchedEffect(resetKey) { if (resetKey > 0) scroll.scrollTo(0) }
     var firstAssigned = false
     Column(Modifier.fillMaxSize().verticalScroll(scroll).padding(bottom = 24.dp)) {
         layout.sections.filter { it.visible }.forEachIndexed { index, cfg ->
@@ -201,7 +203,7 @@ private fun ContinueWatching(state: LauncherUiState, vm: LauncherViewModel, requ
         val h = w * 0.45f
         if (items.isEmpty()) {
             val anyConnected = state.media.providers.any { it.status is com.aether.tv.data.media.ProviderStatus.Connected }
-            GlassTile(onClick = { vm.settingsTarget.value = "integrations"; onOpenTab(LauncherTab.Settings) }, onLongClick = { vm.show(Overlay.Message("Continue Watching", CW_EXPLAINER)) }, focusRequester = requester, shape = Aether.shapes.card,
+            GlassTile(onClick = { vm.openSettings("integrations") }, onLongClick = { vm.show(Overlay.Message("Continue Watching", CW_EXPLAINER)) }, focusRequester = requester, shape = Aether.shapes.card,
                 modifier = Modifier.fillMaxWidth().height(h * 0.62f)) {
                 Row(Modifier.fillMaxSize().padding(horizontal = 20.dp), verticalAlignment = Alignment.CenterVertically) {
                     AIcon(AetherIcons.CirclePlay, size = 24.dp, tint = Aether.colors.textSecondary)
@@ -257,7 +259,7 @@ private fun DevicesRow(state: LauncherUiState, vm: LauncherViewModel, requester:
                 )
             }
             if (layout.showInputsTile) {
-                GlassTile(onClick = { vm.settingsTarget.value = "devices"; onOpenTab(LauncherTab.Settings) },
+                GlassTile(onClick = { vm.openSettings("devices") },
                     shape = Aether.shapes.card, focusRequester = if (devices.isEmpty()) requester else null, modifier = Modifier.width(unit).height(h)) {
                     Row(Modifier.fillMaxSize().padding(horizontal = 16.dp), verticalAlignment = Alignment.CenterVertically) {
                         AIcon(AetherIcons.Monitor, size = (24 * Aether.dimens.iconScale).dp, tint = Aether.colors.textPrimary.copy(alpha = 0.9f))

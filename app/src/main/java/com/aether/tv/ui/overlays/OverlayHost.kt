@@ -1,11 +1,21 @@
 package com.aether.tv.ui.overlays
 
 import androidx.activity.compose.BackHandler
-import androidx.compose.animation.AnimatedContent
+import androidx.compose.animation.core.Animatable
 import androidx.compose.animation.core.tween
-import androidx.compose.animation.fadeIn
-import androidx.compose.animation.fadeOut
-import androidx.compose.animation.togetherWith
+import androidx.compose.runtime.CompositionLocalProvider
+import androidx.compose.runtime.DisposableEffect
+import androidx.compose.runtime.SideEffect
+import androidx.compose.runtime.key
+import androidx.compose.runtime.withFrameNanos
+import androidx.compose.ui.layout.layout
+import androidx.compose.ui.semantics.clearAndSetSemantics
+import com.aether.tv.core.designsystem.FocusLayer
+import com.aether.tv.core.designsystem.FocusMemory
+import com.aether.tv.core.designsystem.FocusSpot
+import com.aether.tv.core.designsystem.LocalFocusLayer
+import com.aether.tv.core.designsystem.tryFocus
+import com.aether.tv.ui.OverlayEntry
 import androidx.compose.foundation.background
 import androidx.compose.foundation.focusGroup
 import androidx.compose.foundation.layout.Arrangement
@@ -53,34 +63,92 @@ import com.aether.tv.ui.common.OptionRow
 import com.aether.tv.ui.common.TvTextField
 import kotlinx.coroutines.delay
 
+/**
+ * Renders every open overlay, bottom first. All of them stay composed, so a dialog keeps what you typed or picked while
+ * a picker sits on top of it; only the top one is placed, drawn and focusable (each has its own [FocusLayer]).
+ *
+ * Focus goes back to whatever opened an overlay when it closes: the tile on the launcher, or the row of the dialog
+ * underneath. An overlay that replaced another (a menu item opening the next dialog) inherits the replaced one's
+ * opener. [onNothingToRestore] runs when none of them is still on screen.
+ */
 @Composable
-fun OverlayHost(overlay: Overlay?, state: LauncherUiState, vm: LauncherViewModel) {
-    if (overlay == null) return
-    BackHandler { vm.dismissOverlay() }
-    val ms = Aether.motion.navMs / 2 + 1
-    AnimatedContent(overlay, transitionSpec = { fadeIn(tween(ms)) togetherWith fadeOut(tween(60)) }, label = "overlay") { o ->
-        when (o) {
-            is Overlay.Message -> MessageDialog(o, vm)
-            is Overlay.Confirm -> ConfirmDialog(o, vm)
-            is Overlay.Choice -> ChoiceDialog(o, vm)
-            is Overlay.TextInput -> TextInputDialog(o, vm)
-            is Overlay.PinEntry -> PinDialog(o, vm)
-            is Overlay.AppOptions -> AppOptionsSheet(o, state, vm)
-            is Overlay.FavoriteOptions -> FavoriteOptionsSheet(o, state, vm)
-            is Overlay.DeviceOptions -> DeviceOptionsSheet(o, state, vm)
-            is Overlay.DeviceEditor -> DeviceEditor(o, state, vm)
-            is Overlay.GameEditor -> GameEditor(o, state, vm)
-            is Overlay.GameOptions -> GameOptionsSheet(o, state, vm)
-            is Overlay.MediaOptions -> MediaOptionsSheet(o, state, vm)
-            is Overlay.AddFavorite -> AddFavoriteSheet(state, vm)
-            is Overlay.AppPicker -> AppPickerSheet(o, state, vm)
-            is Overlay.SystemShortcutPicker -> SystemPickerSheet(o, vm)
-            is Overlay.LinkCodeDisplay -> Unit
-            is Overlay.ProviderSetup -> ProviderSetupSheet(o, state, vm)
-            Overlay.QuickControls -> QuickControlsPanel(state, vm)
-            Overlay.Notifications -> NotificationsPanel(state, vm)
-            Overlay.Search -> SearchScreen(state, vm)
+fun OverlayHost(stack: List<OverlayEntry>, state: LauncherUiState, vm: LauncherViewModel, onNothingToRestore: () -> Unit) {
+    val openers = remember { HashMap<Long, List<FocusSpot>>() }
+    var shownIds by remember { mutableStateOf(emptyList<Long>()) }
+    val ids = stack.map { it.id }
+    LaunchedEffect(ids) {
+        val removed = shownIds.filter { it !in ids }
+        val added = ids.filter { it !in shownIds }
+        val inherited = removed.flatMap { openers[it].orEmpty() }
+        // The tile that was focused when an overlay first appears is its opener (its own focus request comes later).
+        added.forEach { id -> openers[id] = listOfNotNull(FocusMemory.lastSpot) + inherited }
+        shownIds = ids
+        if (removed.isNotEmpty() && vm.skipFocusRestore) vm.skipFocusRestore = false
+        else if (removed.isNotEmpty() && added.isEmpty()) {
+            // Closed: wait a frame so the layer underneath is active and placed again, then go back to the opener.
+            withFrameNanos { }
+            val ok = removed.reversed().asSequence().flatMap { openers[it].orEmpty() }.any { it.tryFocus() }
+            if (!ok && ids.isEmpty()) onNothingToRestore()
         }
+        removed.forEach { openers.remove(it) }
+    }
+    if (stack.isEmpty()) return
+    BackHandler { vm.dismissOverlay() }
+    stack.forEachIndexed { i, entry ->
+        key(entry.id) { OverlayLayer(entry, top = i == stack.lastIndex, state, vm) }
+    }
+}
+
+@Composable
+private fun OverlayLayer(entry: OverlayEntry, top: Boolean, state: LauncherUiState, vm: LauncherViewModel) {
+    val layer = remember { FocusLayer("overlay ${entry.id}") }
+    SideEffect { layer.setActive(top) }
+    DisposableEffect(Unit) { onDispose { layer.setActive(false) } }
+    val alpha = remember { Animatable(0f) }
+    val ms = Aether.motion.navMs / 2 + 1
+    LaunchedEffect(Unit) { alpha.animateTo(1f, tween(ms)) }
+    Box(
+        Modifier
+            .fillMaxSize()
+            .then(if (top) Modifier else Modifier.clearAndSetSemantics {})
+            .layout { measurable, constraints ->
+                val p = measurable.measure(constraints)
+                layout(p.width, p.height) { if (top) p.placeWithLayer(0, 0) { this.alpha = alpha.value } }
+            },
+    ) {
+        CompositionLocalProvider(LocalFocusLayer provides layer, com.aether.tv.ui.LocalPageActive provides top) {
+            OverlayContent(entry.overlay, state, vm)
+        }
+    }
+}
+
+@Composable
+private fun OverlayContent(o: Overlay, state: LauncherUiState, vm: LauncherViewModel) {
+    when (o) {
+        is Overlay.Message -> MessageDialog(o, vm)
+        is Overlay.Confirm -> ConfirmDialog(o, vm)
+        is Overlay.Choice -> ChoiceDialog(o, vm)
+        is Overlay.TextInput -> TextInputDialog(o, vm)
+        is Overlay.PinEntry -> PinDialog(o, vm)
+        is Overlay.AppOptions -> AppOptionsSheet(o, state, vm)
+        is Overlay.FavoriteOptions -> FavoriteOptionsSheet(o, state, vm)
+        is Overlay.DeviceOptions -> DeviceOptionsSheet(o, state, vm)
+        is Overlay.DeviceEditor -> DeviceEditor(o, state, vm)
+        is Overlay.GameEditor -> GameEditor(o, state, vm)
+        is Overlay.GameOptions -> GameOptionsSheet(o, state, vm)
+        is Overlay.MediaOptions -> MediaOptionsSheet(o, state, vm)
+        is Overlay.AddFavorite -> AddFavoriteSheet(state, vm)
+        is Overlay.AppPicker -> AppPickerSheet(o, state, vm)
+        is Overlay.SystemShortcutPicker -> SystemPickerSheet(o, vm)
+        is Overlay.LinkCodeDisplay -> Unit
+        is Overlay.ProviderSetup -> ProviderSetupSheet(o, state, vm)
+        Overlay.QuickControls -> QuickControlsPanel(state, vm)
+        Overlay.Notifications -> NotificationsPanel(state, vm)
+        Overlay.Search -> SearchScreen(state, vm)
+        Overlay.WallpaperPicker -> com.aether.tv.ui.settings.WallpaperPickerSheet(state, vm)
+        is Overlay.WallpaperPreview -> com.aether.tv.ui.settings.WallpaperPreviewScreen(o, state, vm)
+        Overlay.GlassSettings -> com.aether.tv.ui.settings.GlassSettingsPanel(state, vm)
+        Overlay.Typography -> com.aether.tv.ui.settings.TypographyEditor(state, vm)
     }
 }
 

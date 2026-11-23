@@ -7,6 +7,7 @@ import com.aether.tv.core.model.FavoriteType
 import com.aether.tv.core.model.LauncherSettings
 import com.aether.tv.core.model.LauncherTab
 import com.aether.tv.core.model.MediaItem
+import com.aether.tv.core.model.visibleTabs
 import com.aether.tv.data.db.GameShortcutEntity
 import com.aether.tv.data.db.ProfileEntity
 import com.aether.tv.data.devices.DeviceOverview
@@ -40,12 +41,16 @@ data class LauncherUiState(
         favorites.filter { it.type == FavoriteType.App }.mapNotNull { f -> appsByKey[f.targetKey]?.let { f to it } }
     }
 
-    val visibleTabs: List<LauncherTab> get() = settings.layout.tabs.filter { it.visible || it.tab == LauncherTab.Settings || it.tab == LauncherTab.Home }.map { it.tab }
+    /** Tabs in the tab row: the profile's order and visibility. Home can't be hidden; Settings can (⚙ still opens it). */
+    val visibleTabs: List<LauncherTab> get() = settings.layout.visibleTabs()
 
     fun device(id: String): ConnectedDevice? = devices.devices.firstOrNull { it.id == id }
 }
 
-/** Modal UI layered over the launcher. Only one is shown at a time; Back closes it. */
+/** One open overlay. [id] is unique per opening, so the same dialog opened twice is two entries. */
+data class OverlayEntry(val id: Long, val overlay: Overlay)
+
+/** Modal UI layered over the launcher. Only the top one is shown and focusable; Back closes it. */
 sealed interface Overlay {
     data class AppOptions(val appKey: String, val moveScope: MoveScope? = null) : Overlay
     data class FavoriteOptions(val favoriteId: Long) : Overlay
@@ -67,8 +72,21 @@ sealed interface Overlay {
     data object Search : Overlay
     data class SystemShortcutPicker(val onPick: (SystemShortcut) -> Unit) : Overlay
     data class AppPicker(val title: String, val gamesFirst: Boolean = false, val onPick: (AppInfo) -> Unit) : Overlay
+    /** Wallpaper sources with a full-screen preview before anything is applied. */
+    data object WallpaperPicker : Overlay
+    /** Full-screen preview of [candidate] with representative launcher UI: Apply saves it, Cancel/Back discards it. */
+    data class WallpaperPreview(val candidate: WallpaperCandidate) : Overlay
+    /** Glass rendering, opacity, blur, border and dimming, beside the screen they change. */
+    data object GlassSettings : Overlay
+    /** Typeface and text size with live samples. */
+    data object Typography : Overlay
 }
 
 /** Remote-friendly reordering: while active, Left/Right moves the item; OK or Back finishes. */
 data class MoveMode(val favoriteId: Long, val scope: MoveScope)
 enum class MoveScope { HomeApps, AllFavorites }
+
+enum class WallpaperSource { Builtin, Solid, Current, TvFolder, Picked, Web }
+
+/** A wallpaper being previewed: [spec] as stored in settings ("builtin:", "solid:" or "file:"). */
+data class WallpaperCandidate(val spec: String, val label: String, val source: WallpaperSource)

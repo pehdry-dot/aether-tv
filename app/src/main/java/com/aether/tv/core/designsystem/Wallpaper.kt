@@ -145,6 +145,46 @@ object WallpaperRenderer {
         c.drawRect(0f, h * 0.24f, w.toFloat(), h.toFloat(), p)
     }
 
+    /**
+     * Everything Home draws behind its glass for wallpaper [spec] at [w]x[h]: the center-cropped, dimmed composite and
+     * its blurred copy with the resting glass tint baked in. Null when the image can't be decoded. Slow: call off the
+     * main thread. The wallpaper preview uses this too, so it shows exactly the crop and dimming Home will use.
+     */
+    fun backdrop(context: Context, spec: String, w: Int, h: Int, dim: Float, dark: Boolean, blurRadiusPx: Float, tint: androidx.compose.ui.graphics.Color, tintAlpha: Float): Backdrop? {
+        val src = decode(context, spec, w, h) ?: return null
+        val comp = composite(src, w, h, dim, dark)
+        if (src != comp) src.recycle()
+        val blurred = if (blurRadiusPx > 0f) blurredCopy(comp, blurRadiusPx) else null
+        // Bake the resting glass tint into the (tiny) blurred copy: one fill per glass surface instead of two.
+        val tinted = blurred?.let { b ->
+            val m = if (b.isMutable) b else b.copy(Bitmap.Config.ARGB_8888, true).also { b.recycle() }
+            Canvas(m).drawColor(tint.copy(alpha = tintAlpha).toArgb())
+            m.setHasAlpha(false)
+            // Immutable on purpose: glass draws this through a BitmapShader, and Android copies a *mutable*
+            // bitmap (and re-uploads its texture) every time the shader is rebuilt.
+            m.copy(Bitmap.Config.ARGB_8888, false).also { m.recycle() }
+        }
+        return Backdrop(comp.asImageBitmap(), tinted?.asImageBitmap(), IntSize(w, h), blurredTintAlpha = if (tinted != null) tintAlpha else 0f)
+    }
+
+    /** Why [spec] can't be used as a wallpaper, or null when it decodes. Cheap: reads the image header only. */
+    fun problem(context: Context, spec: String): String? = when {
+        spec.startsWith("solid:") -> if (spec.removePrefix("solid:").toLongOrNull(16) == null) "That colour isn't valid." else null
+        spec.startsWith("file:") -> {
+            val f = File(spec.removePrefix("file:"))
+            when {
+                !f.exists() -> "The image file is missing."
+                !f.canRead() -> "Aether can't read that file."
+                else -> {
+                    val o = BitmapFactory.Options().apply { inJustDecodeBounds = true }
+                    runCatching { BitmapFactory.decodeFile(f.path, o) }
+                    if (o.outWidth <= 0 || o.outHeight <= 0) "That file isn't a picture Android can open (JPEG, PNG or WebP)." else null
+                }
+            }
+        }
+        else -> null
+    }
+
     fun blurredCopy(composite: Bitmap, radiusPx: Float): Bitmap {
         val sw = max(1, composite.width / BLUR_DOWNSCALE)
         val sh = max(1, composite.height / BLUR_DOWNSCALE)
@@ -212,22 +252,8 @@ fun WallpaperHost(
         val tintAlpha = colors.glassAlpha
         val backdrop by produceState<Backdrop?>(null, spec, w, h, dim, colors.isDark, radiusPx, blurEnabled, tint, tintAlpha) {
             value = withContext(Dispatchers.Default) {
-                val src = WallpaperRenderer.decode(context, spec, w, h) ?: WallpaperRenderer.decode(context, "builtin:alpine_dusk", w, h)
-                src?.let {
-                    val comp = WallpaperRenderer.composite(it, w, h, dim, colors.isDark)
-                    if (it != comp) it.recycle()
-                    val blurred = if (blurEnabled && radiusPx > 0f) WallpaperRenderer.blurredCopy(comp, radiusPx) else null
-                    // Bake the resting glass tint into the (tiny) blurred copy: one fill per glass surface instead of two.
-                    val tinted = blurred?.let { b ->
-                        val m = if (b.isMutable) b else b.copy(Bitmap.Config.ARGB_8888, true).also { b.recycle() }
-                        Canvas(m).drawColor(tint.copy(alpha = tintAlpha).toArgb())
-                        m.setHasAlpha(false)
-                        // Immutable on purpose: glass draws this through a BitmapShader, and Android copies a *mutable*
-                        // bitmap (and re-uploads its texture) every time the shader is rebuilt.
-                        m.copy(Bitmap.Config.ARGB_8888, false).also { m.recycle() }
-                    }
-                    Backdrop(comp.asImageBitmap(), tinted?.asImageBitmap(), IntSize(w, h), blurredTintAlpha = if (tinted != null) tintAlpha else 0f)
-                }
+                WallpaperRenderer.backdrop(context, spec, w, h, dim, colors.isDark, if (blurEnabled) radiusPx else 0f, tint, tintAlpha)
+                    ?: WallpaperRenderer.backdrop(context, "builtin:alpine_dusk", w, h, dim, colors.isDark, if (blurEnabled) radiusPx else 0f, tint, tintAlpha)
             }
         }
         val motion = if (animated && Aether.motion.enabled) {

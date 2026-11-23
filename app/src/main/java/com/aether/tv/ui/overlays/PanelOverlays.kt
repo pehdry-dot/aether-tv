@@ -155,7 +155,7 @@ fun SearchScreen(state: LauncherUiState, vm: LauncherViewModel) {
             state.games.filter { AppRepository.matchScore(it.title, query) > 0 }.forEach { g -> add(SettingHit(g.title, "Game shortcut") { vm.playGame(g) }) }
             state.favorites.filter { it.type != FavoriteType.App && AppRepository.matchScore(it.title ?: "", query) > 0 }.forEach { f -> add(SettingHit(f.title!!, "Favorite") { vm.openFavorite(f) }) }
             SettingsCategory.entries.filter { AppRepository.matchScore(it.title + " " + it.subtitle, query) > 0 }.forEach { c ->
-                add(SettingHit("Settings ▸ ${c.title}", c.subtitle) { vm.settingsTarget.value = c.key; vm.notice("Open the Settings tab") })
+                add(SettingHit("Settings ▸ ${c.title}", c.subtitle) { vm.openSettings(c.key) })
             }
             SystemShortcut.entries.filter { AppRepository.matchScore(it.label + " " + it.description, query) > 0 && vm.shortcuts.isAvailable(it) }
                 .forEach { s -> add(SettingHit(s.label, "System • ${s.description}") { vm.openSystem(s) }) }

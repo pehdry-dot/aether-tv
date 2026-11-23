@@ -63,7 +63,7 @@ class NavigationTest : LauncherUiTest() {
     @Test fun pagesAreBuiltOnceAndKeptAlive() {
         val behavior = hasContentDescription("Behavior.", substring = true)
         key(Key.DirectionUp); key(Key.DirectionRight, 5); rest() // Settings
-        key(Key.DirectionDown, 3) // Appearance, Home Layout, Behavior
+        key(Key.DirectionDown, 4) // Overview, Appearance, Home Layout, Behavior
         assertTrue("focused: ${focused()}", focused().any { it.toString().contains("Behavior.") })
         key(Key.Back) // category list -> tabs
         key(Key.DirectionLeft, 5); rest() // Home
@@ -121,12 +121,12 @@ class NavigationTest : LauncherUiTest() {
         key(Key.DirectionUp); key(Key.DirectionRight, 5) // Settings tab
         rule.onNodeWithContentDescription("Settings").assertIsFocused()
         rest()
-        key(Key.DirectionDown) // Appearance category
+        key(Key.DirectionDown, 2) // Overview, Appearance
         key(Key.DirectionRight) // opens Appearance detail
         settleUntil { true }; Thread.sleep(150); settleUntil { true }
         val before = vm.state.value.settings.appearance.glassOpacity
-        // Wallpaper, import, URL, theme, accent, glass rendering, opacity
-        key(Key.DirectionDown, 6)
+        // Wallpaper, theme, accent, glass rendering, opacity
+        key(Key.DirectionDown, 4)
         key(Key.DirectionRight)
         settleUntil { vm.state.value.settings.appearance.glassOpacity > before }
         assertEquals(before + 0.02f, vm.state.value.settings.appearance.glassOpacity, 0.001f)

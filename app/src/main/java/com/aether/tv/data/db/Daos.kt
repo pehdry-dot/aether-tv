@@ -22,6 +22,7 @@ interface ProfileDao {
 interface AppMetaDao {
     @Query("SELECT * FROM app_meta WHERE profileId = :profileId") fun observe(profileId: String): Flow<List<AppMetaEntity>>
     @Query("SELECT * FROM app_meta WHERE profileId = :profileId") suspend fun all(profileId: String): List<AppMetaEntity>
+    @Query("SELECT * FROM app_meta") suspend fun allRows(): List<AppMetaEntity>
     @Query("SELECT * FROM app_meta WHERE profileId = :profileId AND componentKey = :key") suspend fun get(profileId: String, key: String): AppMetaEntity?
     @Upsert suspend fun upsert(m: AppMetaEntity)
     @Upsert suspend fun upsertAll(m: List<AppMetaEntity>)
@@ -38,6 +39,7 @@ interface AppMetaDao {
 interface FavoriteDao {
     @Query("SELECT * FROM favorites WHERE profileId = :profileId ORDER BY sortOrder, id") fun observe(profileId: String): Flow<List<FavoriteEntity>>
     @Query("SELECT * FROM favorites WHERE profileId = :profileId ORDER BY sortOrder, id") suspend fun all(profileId: String): List<FavoriteEntity>
+    @Query("SELECT * FROM favorites") suspend fun allRows(): List<FavoriteEntity>
     @Query("SELECT * FROM favorites WHERE profileId = :profileId AND type = :type AND targetKey = :key") suspend fun find(profileId: String, type: String, key: String): FavoriteEntity?
     @Query("SELECT COALESCE(MAX(sortOrder), -1) FROM favorites WHERE profileId = :profileId") suspend fun maxOrder(profileId: String): Int
     @Insert(onConflict = OnConflictStrategy.IGNORE) suspend fun insert(f: FavoriteEntity): Long
@@ -76,6 +78,7 @@ interface DeviceDao {
 interface GameShortcutDao {
     @Query("SELECT * FROM game_shortcuts WHERE profileId = :profileId ORDER BY sortOrder, title") fun observe(profileId: String): Flow<List<GameShortcutEntity>>
     @Query("SELECT * FROM game_shortcuts WHERE profileId = :profileId") suspend fun all(profileId: String): List<GameShortcutEntity>
+    @Query("SELECT * FROM game_shortcuts") suspend fun allRows(): List<GameShortcutEntity>
     @Upsert suspend fun upsert(g: GameShortcutEntity)
     @Query("DELETE FROM game_shortcuts WHERE id = :id") suspend fun delete(id: String)
     @Query("UPDATE game_shortcuts SET lastPlayedAt = :t WHERE id = :id") suspend fun touch(id: String, t: Long)

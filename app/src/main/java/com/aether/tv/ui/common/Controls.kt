@@ -10,6 +10,7 @@ import androidx.compose.foundation.layout.height
 import androidx.compose.foundation.layout.heightIn
 import androidx.compose.foundation.layout.padding
 import androidx.compose.foundation.layout.width
+import androidx.compose.foundation.layout.widthIn
 import androidx.compose.foundation.text.BasicTextField
 import androidx.compose.foundation.text.KeyboardActions
 import androidx.compose.foundation.text.KeyboardOptions
@@ -175,21 +176,26 @@ fun <T> ChoiceRow(
     icon: ImageVector? = null,
     focusRequester: FocusRequester? = null,
 ) {
-    val idx = options.indexOf(selected).coerceAtLeast(0)
+    // Settings are saved asynchronously: quick presses build on the value just chosen, not the last one saved.
+    var pending by remember { mutableStateOf<T?>(null) }
+    LaunchedEffect(selected) { pending = null }
+    val shown = pending ?: selected
+    val idx = options.indexOf(shown).coerceAtLeast(0)
+    fun pick(v: T) { pending = v; onChange(v) }
     OptionRow(
-        label, onClick = { onOpenPicker?.invoke() ?: onChange(options[(idx + 1) % options.size]) }, icon = icon, detail = detail, focusRequester = focusRequester,
-        stateText = optionLabel(selected),
+        label, onClick = { onOpenPicker?.invoke() ?: pick(options[(idx + 1) % options.size]) }, icon = icon, detail = detail, focusRequester = focusRequester,
+        stateText = optionLabel(shown),
         trailing = {
             Row(verticalAlignment = Alignment.CenterVertically) {
                 AIcon(AetherIcons.ChevronLeft, size = 13.dp, tint = Aether.colors.textTertiary)
-                AText(optionLabel(selected), Aether.type.body, color = Aether.colors.textSecondary, modifier = Modifier.padding(horizontal = 6.dp))
+                AText(optionLabel(shown), Aether.type.body, color = Aether.colors.textSecondary, modifier = Modifier.padding(horizontal = 6.dp))
                 AIcon(AetherIcons.ChevronRight, size = 13.dp, tint = Aether.colors.textTertiary)
             }
         },
         onKey = { code ->
             when (code) {
-                NativeKeyEvent.KEYCODE_DPAD_LEFT -> { onChange(options[(idx - 1 + options.size) % options.size]); true }
-                NativeKeyEvent.KEYCODE_DPAD_RIGHT -> { onChange(options[(idx + 1) % options.size]); true }
+                NativeKeyEvent.KEYCODE_DPAD_LEFT -> { pick(options[(idx - 1 + options.size) % options.size]); true }
+                NativeKeyEvent.KEYCODE_DPAD_RIGHT -> { pick(options[(idx + 1) % options.size]); true }
                 else -> false
             }
         },
@@ -210,19 +216,24 @@ fun SliderRow(
     focusRequester: FocusRequester? = null,
 ) {
     fun clamp(v: Float) = ((v / step).roundToInt() * step).coerceIn(range.start, range.endInclusive)
-    val fraction = (value - range.start) / (range.endInclusive - range.start)
+    // Quick presses build on the value just set, not on the last value saved (settings are saved asynchronously).
+    var pending by remember { mutableStateOf<Float?>(null) }
+    LaunchedEffect(value) { pending = null }
+    val shown = pending ?: value
+    val fraction = (shown - range.start) / (range.endInclusive - range.start)
+    fun set(v: Float) { pending = v; onChange(v) }
     OptionRow(
-        label, onClick = { }, icon = icon, detail = detail, stateText = format(value), focusRequester = focusRequester,
+        label, onClick = { }, icon = icon, detail = detail, stateText = format(shown), focusRequester = focusRequester,
         trailing = {
             Row(verticalAlignment = Alignment.CenterVertically) {
                 ValueBar(fraction)
-                AText(format(value), Aether.type.body, color = Aether.colors.textSecondary, modifier = Modifier.width(52.dp).padding(start = 10.dp))
+                AText(format(shown), Aether.type.body, color = Aether.colors.textSecondary, modifier = Modifier.widthIn(min = 52.dp).padding(start = 10.dp))
             }
         },
         onKey = { code ->
             when (code) {
-                NativeKeyEvent.KEYCODE_DPAD_LEFT -> { onChange(clamp(value - step)); true }
-                NativeKeyEvent.KEYCODE_DPAD_RIGHT -> { onChange(clamp(value + step)); true }
+                NativeKeyEvent.KEYCODE_DPAD_LEFT -> { set(clamp(shown - step)); true }
+                NativeKeyEvent.KEYCODE_DPAD_RIGHT -> { set(clamp(shown + step)); true }
                 else -> false
             }
         },

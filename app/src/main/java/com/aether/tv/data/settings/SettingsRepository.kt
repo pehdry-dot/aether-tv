@@ -6,6 +6,7 @@ import androidx.datastore.preferences.core.edit
 import androidx.datastore.preferences.core.stringPreferencesKey
 import androidx.datastore.preferences.core.booleanPreferencesKey
 import com.aether.tv.core.model.LauncherSettings
+import com.aether.tv.core.model.normalized
 import kotlinx.coroutines.flow.Flow
 import kotlinx.coroutines.flow.distinctUntilChanged
 import kotlinx.coroutines.flow.first
@@ -33,7 +34,7 @@ class SettingsRepository @Inject constructor(private val store: DataStore<Prefer
 
     suspend fun update(profileId: String, transform: (LauncherSettings) -> LauncherSettings) {
         store.edit { prefs ->
-            val updated = transform(decode(prefs[key(profileId)]))
+            val updated = transform(decode(prefs[key(profileId)])).normalized()
             prefs[key(profileId)] = AetherJson.encodeToString(LauncherSettings.serializer(), updated)
         }
     }
@@ -48,7 +49,7 @@ class SettingsRepository @Inject constructor(private val store: DataStore<Prefer
 
     companion object {
         fun decode(json: String?): LauncherSettings =
-            if (json.isNullOrBlank()) LauncherSettings()
-            else runCatching { AetherJson.decodeFromString(LauncherSettings.serializer(), json) }.getOrElse { LauncherSettings() }
+            (if (json.isNullOrBlank()) LauncherSettings()
+            else runCatching { AetherJson.decodeFromString(LauncherSettings.serializer(), json) }.getOrElse { LauncherSettings() }).normalized()
     }
 }

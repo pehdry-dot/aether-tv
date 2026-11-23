@@ -25,6 +25,7 @@ import androidx.compose.ui.Modifier
 import androidx.compose.ui.composed
 import androidx.compose.ui.draw.drawWithCache
 import androidx.compose.ui.focus.FocusRequester
+import androidx.compose.ui.focus.focusProperties
 import androidx.compose.ui.focus.focusRequester
 import androidx.compose.ui.focus.onFocusChanged
 import androidx.compose.ui.geometry.CornerRadius
@@ -56,14 +57,6 @@ private val SelectKeys = setOf(
     NativeKeyEvent.KEYCODE_DPAD_CENTER, NativeKeyEvent.KEYCODE_ENTER,
     NativeKeyEvent.KEYCODE_NUMPAD_ENTER, NativeKeyEvent.KEYCODE_BUTTON_A,
 )
-
-/**
- * Remembers the most recently focused tile so focus can be put back exactly where it was after an overlay
- * (options menu, dialog) closes.
- */
-object FocusMemory {
-    @Volatile var last: FocusRequester? = null
-}
 
 /** Global switches for secondary actions (set from Behavior settings). */
 object InputBehavior {
@@ -417,6 +410,9 @@ fun GlassTile(
 ) {
     var focused by remember { mutableStateOf(false) }
     val selfRequester = remember { FocusRequester() }
+    // The page or dialog this tile is in: hidden layers can't take focus (read in focusProperties, so no recomposition).
+    val layer = LocalFocusLayer.current
+    val spot = remember(layer) { FocusSpot(selfRequester, layer) }
     val motion = Aether.motion
     val glassStyle = Aether.glass
     val progress by animateFloatAsState(
@@ -438,9 +434,10 @@ fun GlassTile(
             .focusRequester(selfRequester)
             .onFocusChanged {
                 focused = it.isFocused
-                if (it.isFocused) FocusMemory.last = selfRequester
+                if (it.isFocused) FocusMemory.lastSpot = spot
                 onFocus?.invoke(it.isFocused)
             }
+            .focusProperties { canFocus = layer.isActive }
             .tvClickable(onLongClick = onLongClick, onClick = onClick),
     ) {
         content(focused)
