@@ -42,6 +42,7 @@ Verification: **JVM** = unit/Robolectric tests or rendered screenshots; **HW** =
 | Icon packs | ⛔ not yet | | | | — |
 | Settings Overview dashboard, remote-reachable | ✅ | ✅ | ✅ | ✅ | JVM (SettingsOverviewTest) |
 | Hideable Settings tab (⚙ always opens Settings) | ✅ | ✅ | ✅ | ✅ | JVM (HiddenSettingsTabTest) |
+| IP address (status bar, Quick Controls, TV & System, adb connect) | ✅ | ✅ | ✅ | ✅ | JVM (IpAddressTest, IpAddressesTest); HW pending |
 | Continue Watching live refresh (observers, late writes, ranking) | ✅ | ✅ | ✅ | 🟡 needs TV listings permission | JVM (ContinueWatchingTest, fake TvProvider); HW pending |
 | Wallpaper preview before applying | ✅ | ✅ | ✅ | ✅ | JVM |
 | Typography editor, 6 bundled typefaces, 90–150 % | ✅ | ✅ | ✅ | ✅ | JVM, screenshots |

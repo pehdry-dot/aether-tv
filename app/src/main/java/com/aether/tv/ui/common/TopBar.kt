@@ -97,7 +97,8 @@ fun TopBar(
         Column(Modifier.weight(1f)) {
             if (layout.showClock) AText(formatTime(now, use24), Aether.type.clock)
             val w = weather?.takeIf { layout.showWeather }
-            if (layout.showDate || w != null) Row(Modifier.padding(top = 2.dp), verticalAlignment = Alignment.CenterVertically) {
+            val ip = network.ipAddress?.takeIf { layout.showIpAddress }
+            if (layout.showDate || w != null || ip != null) Row(Modifier.padding(top = 2.dp), verticalAlignment = Alignment.CenterVertically) {
                 if (layout.showDate) AText(formatDate(now), Aether.type.date, color = Aether.colors.textSecondary)
                 if (w != null) {
                     if (layout.showDate) Spacer(Modifier.width(12.dp))
@@ -107,13 +108,21 @@ fun TopBar(
                         AText(w.text, Aether.type.date, color = Aether.colors.textSecondary)
                     }
                 }
+                if (ip != null) {
+                    if (layout.showDate || w != null) Spacer(Modifier.width(12.dp))
+                    Row(Modifier.semantics(mergeDescendants = true) { contentDescription = "IP address $ip" }, verticalAlignment = Alignment.CenterVertically) {
+                        AIcon(network.icon(), size = 15.dp, tint = Aether.colors.textSecondary)
+                        Spacer(Modifier.width(5.dp))
+                        AText(ip, Aether.type.date, color = Aether.colors.textSecondary)
+                    }
+                }
             }
         }
         Row(horizontalArrangement = Arrangement.spacedBy(6.dp), modifier = Modifier.offset(x = 8.dp)) {
             if (update != null) TopIcon(AetherIcons.Download, update, onUpdate, badge = true)
             TopIcon(AetherIcons.Search, "Search everything", onSearch)
             if (layout.showNotifications) TopIcon(AetherIcons.Bell, if (hasNotifications) "Notifications (new)" else "Notifications", onNotifications, badge = hasNotifications)
-            if (layout.showNetworkStatus) TopIcon(network.icon(), "${network.label}. Quick controls", onNetwork)
+            if (layout.showNetworkStatus) TopIcon(network.icon(), "${network.label}${network.ipAddress?.let { ", IP $it" }.orEmpty()}. Quick controls", onNetwork)
             TopIcon(AetherIcons.Settings, "Open settings", onSettings, selected = settingsOpen, requester = settingsRequester)
         }
     }

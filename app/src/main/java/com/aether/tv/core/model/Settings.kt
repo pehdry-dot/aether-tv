@@ -121,6 +121,8 @@ data class HomeLayoutSettings(
     val weatherCity: String = "",
     val temperatureUnit: TemperatureUnit = TemperatureUnit.Auto,
     val showNetworkStatus: Boolean = true,
+    /** This TV's IP address next to the date (Home Layout ▸ Status bar). Shown only when the TV reports one. */
+    val showIpAddress: Boolean = true,
     val showNotifications: Boolean = true,
     val showPageTitle: Boolean = true,
     /** Favorites page: grouped dashboard (true) or one simple grid (false). */

@@ -74,7 +74,7 @@ import kotlinx.coroutines.launch
 fun QuickControlsPanel(state: LauncherUiState, vm: LauncherViewModel) {
     val first = remember { FocusRequester() }
     val entries = listOf(
-        SystemShortcut.Network to state.network.label,
+        SystemShortcut.Network to state.network.label + state.network.ipAddress?.let { " • IP $it" }.orEmpty(),
         SystemShortcut.Bluetooth to "${state.devices.peripherals.peers.count { it.connected }} connected",
         SystemShortcut.Sound to null,
         SystemShortcut.Display to null,
@@ -94,7 +94,12 @@ fun QuickControlsPanel(state: LauncherUiState, vm: LauncherViewModel) {
             items(entries, key = { it.first.name }) { (s, detail) ->
                 val ok = remember { vm.shortcuts.isAvailable(s) }
                 OptionRow(s.label, { vm.dismissOverlay(); vm.openSystem(s) }, icon = if (s == SystemShortcut.Network) state.network.icon() else s.icon,
-                    detail = if (!ok) "Not available on this TV" else detail ?: s.description, enabled = ok)
+                    detail = when {
+                        // The connection and address are real either way; only opening the TV's screen may not work.
+                        s == SystemShortcut.Network && !ok -> "$detail • the TV's network screen isn't available"
+                        !ok -> "Not available on this TV"
+                        else -> detail ?: s.description
+                    }, enabled = ok || s == SystemShortcut.Network)
             }
         }
     }
@@ -111,7 +116,7 @@ fun NotificationsPanel(state: LauncherUiState, vm: LauncherViewModel) {
             Spacer(Modifier.height(12.dp))
             OptionRow("Grant access", {
                 if (vm.shortcuts.isAvailable(SystemShortcut.NotificationAccess)) vm.openSystem(SystemShortcut.NotificationAccess)
-                else vm.show(Overlay.Message("Notification access", notificationAdb(context.packageName)))
+                else vm.show(Overlay.Message("Notification access", notificationAdb(context.packageName, state.network.ipAddress)))
             }, icon = AetherIcons.Bell, focusRequester = first, chevron = true)
         } else if (state.notifications.isEmpty()) {
             EmptyState("You're all caught up", null, AetherIcons.Bell, Modifier.fillMaxWidth())
@@ -283,7 +288,7 @@ fun ProviderSetupSheet(o: Overlay.ProviderSetup, state: LauncherUiState, vm: Lau
                 is MediaSessionProvider -> item {
                     OptionRow(if (state.notificationAccess) "Access granted" else "Grant notification access", {
                         if (vm.shortcuts.isAvailable(SystemShortcut.NotificationAccess)) vm.openSystem(SystemShortcut.NotificationAccess)
-                        else vm.show(Overlay.Message("Notification access", notificationAdb(context.packageName)))
+                        else vm.show(Overlay.Message("Notification access", notificationAdb(context.packageName, state.network.ipAddress)))
                     }, icon = AetherIcons.Bell, focusRequester = first, detail = "Reads only what apps publish as their media session — not a viewing history.")
                 }
                 is PlexProvider -> {

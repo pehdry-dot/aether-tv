@@ -84,9 +84,12 @@ object UiHarness {
         return state.copy(
             devices = state.devices.copy(devices = configured + discovered, inputs = inputs, peripherals = peripherals, inputFrameworkAvailable = true),
             media = state.media.copy(continueWatching = media, providers = providers),
-            network = com.aether.tv.platform.NetworkState(com.aether.tv.platform.NetworkType.Wifi, 4, true),
+            network = com.aether.tv.platform.NetworkState(com.aether.tv.platform.NetworkType.Wifi, 4, true, ipAddress = DEMO_IP),
         )
     }
+
+    /** A private-range address for demo screens (RFC 1918). */
+    const val DEMO_IP = "192.168.1.23"
 
     /** Original abstract "cinematic" artwork for demo cards (no copyrighted imagery). */
     fun art(seed: Int, w: Int, h: Int): Bitmap {

@@ -84,6 +84,10 @@ SIGNING.md.
   - A restore that was interrupted completes on the next start.
   - 1.1.0 JSON backups still restore.
 - **Advanced ▸ Remote response** measures key-to-frame delay on the TV, with "Build pages in advance" on or off.
+- **The TV's IP address** is shown next to the date (Home Layout ▸ Status bar ▸ IP address, on by default), in Quick
+  Controls and in Settings ▸ TV & System ▸ IP address. That row gives the `adb connect` command, and the adb
+  instructions in Settings start with it. It is the address Android reports for the connection in use (IPv4 first),
+  updated when it changes; nothing is shown when the TV reports none.
 - Release workflow (`.github/workflows/release.yml`): on a version tag it tests, signs, checks the key, attaches the APK,
   `aether-update.json` and checksums, and creates a draft release. Nothing is published automatically.
 

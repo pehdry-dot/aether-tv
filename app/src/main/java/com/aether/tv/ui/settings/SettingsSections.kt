@@ -52,6 +52,7 @@ import com.aether.tv.ui.common.GroupLabel
 import com.aether.tv.ui.common.OptionRow
 import com.aether.tv.ui.common.SliderRow
 import com.aether.tv.ui.common.ToggleRow
+import com.aether.tv.ui.common.icon
 import com.aether.tv.ui.media.short
 import android.view.KeyEvent as NativeKeyEvent
 import kotlin.math.roundToInt
@@ -179,6 +180,10 @@ private fun LazyListScope.homeLayout(state: LauncherUiState, vm: LauncherViewMod
     item("date") { ToggleRow("Date", l.showDate, { v -> vm.layout { it.copy(showDate = v) } }) }
     item("weather") { WeatherRows(l, vm) }
     item("net") { ToggleRow("Network status", l.showNetworkStatus, { v -> vm.layout { it.copy(showNetworkStatus = v) } }, icon = AetherIcons.Wifi) }
+    item("ip") {
+        ToggleRow("IP address", l.showIpAddress, { v -> vm.layout { it.copy(showIpAddress = v) } }, icon = AetherIcons.Globe,
+            detail = "This TV's address on your network, next to the date" + (state.network.ipAddress?.let { " (now $it)" } ?: " • the TV isn't reporting one right now"))
+    }
     item("notif") { ToggleRow("Notifications", l.showNotifications, { v -> vm.layout { it.copy(showNotifications = v) } }, icon = AetherIcons.Bell) }
     item("title") { ToggleRow("Page title", l.showPageTitle, { v -> vm.layout { it.copy(showPageTitle = v) } }, icon = AetherIcons.Type) }
 }
@@ -251,7 +256,7 @@ private fun HomeServiceRow(vm: LauncherViewModel) {
     if (!enabled) {
         OptionRow(
             "Home button returns to Aether: off",
-            { vm.show(Overlay.Message("Turn on the Home button service", HOME_SERVICE_EXPLAINER)) },
+            { vm.show(Overlay.Message("Turn on the Home button service", homeServiceExplainer(vm.state.value.network.ipAddress))) },
             icon = AetherIcons.Home,
             detail = if (amazonOff) "Not needed while Amazon's home is switched off." else "Fire TV has no screen for this; it is turned on from a computer. Select for the commands.",
             chevron = true,
@@ -276,7 +281,8 @@ const val FIRE_HOME_EXPLAINER = "Fire OS sends the Home button to Amazon's own h
     "• Aether's Home button service: Amazon's home appears for a moment, then Aether comes back. Keeps the full Settings menu.\n\n" +
     "Both can stop working after a Fire OS update."
 
-const val HOME_SERVICE_EXPLAINER = "Fire TV has no Accessibility screen for this service. Turn it on once from a computer:\n\n" +
+fun homeServiceExplainer(ip: String?) = "Fire TV has no Accessibility screen for this service. Turn it on once from a computer:\n\n" +
+    adbConnectLine(ip) +
     com.aether.tv.platform.HomeButtonService.ENABLE_COMMANDS +
     "\n\nIt only sees which app window is showing — never screen content — and you can pause it here at any time."
 
@@ -397,6 +403,7 @@ private fun LazyListScope.tvSystem(state: LauncherUiState, vm: LauncherViewModel
         OptionRow("Storage", { vm.show(Overlay.Storage) }, icon = AetherIcons.HardDrive, focusRequester = first, chevron = true,
             detail = "Free space, Aether's cache, backups and pictures, app info — works with Amazon's home switched off")
     }
+    item("ip") { IpAddressRow(state, vm) }
     item("qc") { OptionRow("Quick Controls", { vm.show(Overlay.QuickControls) }, icon = AetherIcons.SlidersHorizontal, detail = "Also opens from the network icon on the top bar", chevron = true) }
     item("inputs") { OptionRow("Inputs", { vm.inputs.openInputsFallback().let { r -> if (r is com.aether.tv.platform.InputSwitchResult.Failed) vm.show(Overlay.Message("Inputs", r.reason)) } }, icon = AetherIcons.Hdmi, detail = "Open the TV's own input selection", chevron = true) }
     item("g-remote") { GroupLabel("Remote shortcuts") }
@@ -415,6 +422,24 @@ private fun LazyListScope.tvSystem(state: LauncherUiState, vm: LauncherViewModel
     SystemShortcut.entries.filter { it !in setOf(SystemShortcut.NotificationAccess, SystemShortcut.OverlayPermission, SystemShortcut.HomeApp) }.forEach { s ->
         item("s-${s.name}") { SystemRow(s, vm) }
     }
+}
+
+/** Settings ▸ TV & System ▸ IP address: the real address, and how to reach the TV with adb from a computer. */
+@Composable
+private fun IpAddressRow(state: LauncherUiState, vm: LauncherViewModel) {
+    val n = state.network
+    val ip = n.ipAddress
+    OptionRow(
+        "IP address", {
+            if (ip == null) vm.openSystem(SystemShortcut.Network)
+            else vm.show(Overlay.Message("IP address", "This TV is at $ip (${n.label}).\n\n" +
+                "From a computer on the same network, with ADB debugging on in the TV's Developer options:\n\n" +
+                "adb connect ${com.aether.tv.platform.IpAddresses.adbTarget(ip)}\n\n" +
+                "The router can give the TV a different address later; Aether always shows the current one."))
+        },
+        icon = n.icon(), chevron = true,
+        detail = if (ip != null) "$ip • ${n.label} • select for adb connect" else "${n.label} • no address reported • select for the TV's network settings",
+    )
 }
 
 @Composable
@@ -447,7 +472,7 @@ private fun HoldMenuRow(vm: LauncherViewModel) {
     val context = LocalContext.current
     val on by vm.keyShortcuts.collectAsState()
     val service = remember { com.aether.tv.platform.HomeButtonService.isEnabled(context) }
-    if (!service) OptionRow("Hold ☰ anywhere for the TV's quick panel: needs the Home button service", { vm.show(Overlay.Message("Turn on the Home button service", HOME_SERVICE_EXPLAINER)) },
+    if (!service) OptionRow("Hold ☰ anywhere for the TV's quick panel: needs the Home button service", { vm.show(Overlay.Message("Turn on the Home button service", homeServiceExplainer(vm.state.value.network.ipAddress))) },
         icon = AetherIcons.Keyboard, chevron = true, detail = "Android only lets an accessibility service see buttons in other apps. Select for how to turn it on.")
     else ToggleRow("Hold ☰ anywhere for the TV's quick panel", on, { vm.setKeyShortcuts(it) }, icon = AetherIcons.Keyboard,
         detail = "A short ☰ press still goes to the app; Home, Back, volume and playback are never touched. The service sees key codes only.")
@@ -481,7 +506,7 @@ private fun NotificationAccessRow(state: LauncherUiState, vm: LauncherViewModel,
         "Notification & media access", {
             if (granted) vm.show(Overlay.Message("Notification access", "Granted. Aether shows notifications under the bell icon and what's playing under Continue Watching. Revoke it in the TV's system settings."))
             else if (vm.shortcuts.isAvailable(SystemShortcut.NotificationAccess)) vm.openSystem(SystemShortcut.NotificationAccess)
-            else vm.show(Overlay.Message("Notification access", notificationAdb(context.packageName)))
+            else vm.show(Overlay.Message("Notification access", notificationAdb(context.packageName, state.network.ipAddress)))
         },
         icon = AetherIcons.Bell, focusRequester = first, chevron = true,
         detail = if (granted) "Granted" else "Not granted — needed for notifications and Now Playing",
@@ -511,7 +536,11 @@ private fun sourceScope(id: String): String? = when (id) {
     else -> null
 }
 
-fun notificationAdb(pkg: String) = "This TV has no settings screen for notification access. You can grant it once from a computer with adb:\n\n" +
+/** "adb connect <ip>:5555", first line of the adb instructions, when the TV reports its address. */
+fun adbConnectLine(ip: String?) = ip?.let { "adb connect ${com.aether.tv.platform.IpAddresses.adbTarget(it)}\n" }.orEmpty()
+
+fun notificationAdb(pkg: String, ip: String? = null) = "This TV has no settings screen for notification access. You can grant it once from a computer with adb:\n\n" +
+    adbConnectLine(ip) +
     "adb shell cmd notification allow_listener $pkg/com.aether.tv.platform.AetherNotificationListener\n\n" +
     "Aether then shows notifications and media sessions. Some low-memory TVs ignore this permission entirely."
 

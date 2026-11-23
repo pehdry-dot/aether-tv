@@ -13,7 +13,7 @@ Robolectric runs with `graphicsMode=NATIVE`, so screenshots are real Compose/Ski
 `w960dp-h540dp-xhdpi` (1920×1080 px), the Android TV / Fire TV UI resolution.
 
 ## Latest results (executed 2026-11-23, JVM, Robolectric SDK 34, version 1.2.0)
-`./gradlew :app:testDebugUnitTest --rerun`, twice in a row: **169 tests, 152 run, 0 failed, 17 skipped**. The 17
+`./gradlew :app:testDebugUnitTest --rerun`, twice in a row: **177 tests, 160 run, 0 failed, 17 skipped**. The 17
 skipped are `ReviewShotsTest`, which only render review screenshots when `AETHER_REVIEW_SHOTS=1` is set; they were run
 that way during development and their PNGs inspected, but they assert nothing.
 
@@ -28,6 +28,7 @@ as the remote's keys, including Back through the Activity's back dispatcher.
 | `ui.NavigationTest` | 11 | Initial focus, D-pad rows, Up to the selected tab, tab switching, pages built once and kept, sweeping tabs only builds the one you stop on, focus never enters a hidden page, Menu key options, move mode, slider ◀ ▶, search |
 | `ui.HomeContinueWatchingTest` | 1 | A new Nuvio episode appears first, focus stays on its card through the reorder, OK resumes it in Nuvio |
 | `ui.StorageAndStoreTest` | 2 | Storage measures and deletes only what you pick (with confirmation, assets in use kept); Store lists only stores that open and offers Aurora |
+| `ui.IpAddressTest` | 4 | The IP address next to the date and its switch, nothing shown without an address, Quick Controls, the TV & System row and its `adb connect` command (Back returns to the row) |
 | `ui.ScreenshotTest` | 11 | Renders docs/screenshots (Home, Apps, Favorites, Settings Overview, Media, Games, Appearance, app options, Quick Controls, light theme, icons only), driven by remote keys |
 | `media.ContinueWatchingTest` | 10 | A new Nuvio episode after 12 old entries (late write), bursts coalesced, observers removed when Aether leaves the front, same-title episodes stay two cards, an offline server never delays local sources and keeps its last result, empty ≠ failed, account change drops old cards, Now Playing card, bounded artwork cache |
 | `media.ContinueWatchingRankerTest` | 5 | Merge before the limit by engagement, Watch Next + channel duplicates become one card, untimed items keep publisher order, sessions yield to resumable listings, localized channel names |
@@ -39,6 +40,7 @@ as the remote's keys, including Back through the Activity's back dispatcher.
 | `data.ProviderTest` | 3 | Jellyfin sign-in and resume, Kodi resume points, unreachable server → error (no fake data) |
 | `unit.RemoteShortcutTest` | 6 | Holding ☰ opens the quick panel once, a short ☰ still reaches the app, other keys are never touched, the Home-button service never covers the panel, panel session expiry, Aurora release parsing and pinned signer |
 | `unit.HomeRedirectPolicyTest` | 9 | Home redirect rules measured on the M450 (kept from 1.1) |
+| `unit.IpAddressesTest` | 4 | IPv4 on the LAN first, never loopback or link-local, IPv6-only networks, `adb connect` targets (IPv6 in brackets) |
 | `unit.NavRulesTest` | 5 | Older profiles keep their Settings tab and start tab, hidden start tab → Home, Home can't be hidden, detached Settings page, text-size steps |
 | `unit.*` (other) | 39 | Settings JSON, app library logic, device status, parsing, logo mask, photo scaling, Watch Next text, weather |
 
@@ -46,7 +48,7 @@ Bugs found by these tests during 1.2 and fixed: `focusRestorer` redirected progr
 links landed on the sidebar); OK on the selected tab followed geometry into a Home tile; an Overview row overflowed
 and Left/Up landed on a zero-width tile; quick slider presses lost steps; the Home button raced overlay focus restore;
 the Storage dialog lost focus after measuring; the 150 % Apps grid clipped names; a first-run favorites write could
-outlive a short test.
+outlive a short test; the launcher's database observers could outlive a test (the harness now stops them first).
 
 ## Emulator checks
 None. This build environment has no KVM, so no Android emulator could run. Everything above is JVM + Robolectric.
@@ -67,6 +69,7 @@ Each is simulated or reasoned from public sources only; see KNOWN_LIMITATIONS.md
 - Remote response (Advanced ▸ Remote response) with "Build pages in advance" on and off, and frame timing of the new
   fonts and the Overview.
 - Storage numbers (`StatFs`) and app info screens on Fire OS.
+- The IP address Fire OS reports on Wi-Fi and Ethernet.
 
 ### Measuring remote response on the TV
 Settings ▸ Advanced ▸ Remote response shows median, 95th percentile and worst time from a key press to the next frame,

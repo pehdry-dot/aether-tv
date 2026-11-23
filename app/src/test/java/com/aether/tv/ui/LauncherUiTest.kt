@@ -12,6 +12,8 @@ import androidx.compose.ui.test.performKeyInput
 import androidx.compose.ui.test.pressKey
 import com.aether.tv.TestEnv
 import org.junit.After
+import androidx.lifecycle.viewModelScope
+import kotlinx.coroutines.cancel
 import org.junit.Before
 import org.junit.Rule
 import org.robolectric.Shadows.shadowOf
@@ -40,7 +42,13 @@ abstract class LauncherUiTest {
         settleUntil { rule.onAllNodes(isFocused()).fetchSemanticsNodes().isNotEmpty() }
     }
 
-    @After fun tearDownLauncher() = env.close()
+    @After fun tearDownLauncher() {
+        // Stop the launcher's collectors first: a settings change at the end of a test makes Room re-run its observed
+        // queries, and those must not reach a database that is already closed.
+        vm.viewModelScope.cancel()
+        repeat(3) { shadowOf(Looper.getMainLooper()).idle(); Thread.sleep(50) }
+        env.close()
+    }
 
     /** Pumps the main looper and Compose clock until [cond] holds (background IO posts results to main). */
     protected fun settleUntil(timeoutMs: Long = 15_000, cond: () -> Boolean) {
