@@ -1,0 +1,6 @@
+<?xml version="1.0" encoding="utf-8"?>
+<resources>
+    <string name="app_name">Aether TV</string>
+    <string name="home_service_label">Aether: Home button</string>
+    <string name="home_service_description">Brings Aether back when the TV opens its own home screen. Reads only which app window is showing; never reads screen content.</string>
+</resources>
