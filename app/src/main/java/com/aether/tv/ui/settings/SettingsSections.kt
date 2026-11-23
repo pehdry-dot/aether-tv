@@ -389,8 +389,24 @@ private fun BluetoothPermissionRow(state: LauncherUiState, vm: LauncherViewModel
 
 // ------------------------------------------------------------------------------------------------ TV & System
 private fun LazyListScope.tvSystem(state: LauncherUiState, vm: LauncherViewModel, first: FocusRequester) {
-    item("qc") { OptionRow("Quick Controls", { vm.show(Overlay.QuickControls) }, icon = AetherIcons.SlidersHorizontal, detail = "Also opens from the network icon on the top bar", focusRequester = first, chevron = true) }
+    item("storage") {
+        OptionRow("Storage", { vm.show(Overlay.Storage) }, icon = AetherIcons.HardDrive, focusRequester = first, chevron = true,
+            detail = "Free space, Aether's cache, backups and pictures, app info — works with Amazon's home switched off")
+    }
+    item("qc") { OptionRow("Quick Controls", { vm.show(Overlay.QuickControls) }, icon = AetherIcons.SlidersHorizontal, detail = "Also opens from the network icon on the top bar", chevron = true) }
     item("inputs") { OptionRow("Inputs", { vm.inputs.openInputsFallback().let { r -> if (r is com.aether.tv.platform.InputSwitchResult.Failed) vm.show(Overlay.Message("Inputs", r.reason)) } }, icon = AetherIcons.Hdmi, detail = "Open the TV's own input selection", chevron = true) }
+    item("g-remote") { GroupLabel("Remote shortcuts") }
+    item("gesture") {
+        OptionRow("Picture & sound while watching", { vm.show(Overlay.Message("TV settings from any app or HDMI", REMOTE_GESTURE)) }, icon = AetherIcons.Tv,
+            detail = "Press ⚙ on the remote (or hold Home) over Nuvio, YouTube or the Xbox", chevron = true)
+    }
+    item("panel") {
+        val ok = remember { com.aether.tv.platform.TvQuickSettings.intent(vm.shortcuts) != null }
+        OptionRow("Open the TV's quick panel now", { vm.openTvQuickPanel() }, icon = AetherIcons.SlidersHorizontal, chevron = ok,
+            detail = if (ok) "Found on this TV — it opens over Aether; from an app, use ⚙ or the shortcut below" else "Not found for apps on this TV; ⚙ on the remote still opens it")
+    }
+    item("holdMenu") { HoldMenuRow(vm) }
+    item("remoteTest") { OptionRow("Test the remote's buttons", { vm.show(Overlay.RemoteTest) }, icon = AetherIcons.Joystick, detail = "Shows which buttons reach Aether", chevron = true) }
     item("g1") { GroupLabel("System screens — long-press to add to Favorites") }
     SystemShortcut.entries.filter { it !in setOf(SystemShortcut.NotificationAccess, SystemShortcut.OverlayPermission, SystemShortcut.HomeApp) }.forEach { s ->
         item("s-${s.name}") { SystemRow(s, vm) }
@@ -411,6 +427,26 @@ private fun SystemRow(s: SystemShortcut, vm: LauncherViewModel) {
         },
         enabled = available || offWithAmazonHome, chevron = available,
     )
+}
+
+const val REMOTE_GESTURE = "While an app (Nuvio, YouTube…) or an HDMI input (the Xbox on HDMI 1) is on screen:\n\n" +
+    "1. Press ⚙ (Settings) on the remote once. Fire OS opens its quick panel on the right, over the picture. " +
+    "If ⚙ does nothing, hold Home for about two seconds: on Fire TV smart TVs that opens the same panel.\n" +
+    "2. Choose Picture (or Sound). On HDMI 1 the change applies to HDMI 1: Fire OS keeps picture settings per input.\n" +
+    "3. Press Back until the panel closes. You're back in the app, or on the Xbox picture.\n\n" +
+    "Aether's Home button service leaves this panel alone. With the shortcut below on, holding ☰ (Menu) for a second opens it too.\n\n" +
+    "How sure is this? ⚙ and held Home are Amazon's documented gestures for Fire TV smart TVs. They haven't been tried on this TV " +
+    "with Amazon's home switched off: use \"Test the remote's buttons\" and \"Open the TV's quick panel now\" to check."
+
+@Composable
+private fun HoldMenuRow(vm: LauncherViewModel) {
+    val context = LocalContext.current
+    val on by vm.keyShortcuts.collectAsState()
+    val service = remember { com.aether.tv.platform.HomeButtonService.isEnabled(context) }
+    if (!service) OptionRow("Hold ☰ anywhere for the TV's quick panel: needs the Home button service", { vm.show(Overlay.Message("Turn on the Home button service", HOME_SERVICE_EXPLAINER)) },
+        icon = AetherIcons.Keyboard, chevron = true, detail = "Android only lets an accessibility service see buttons in other apps. Select for how to turn it on.")
+    else ToggleRow("Hold ☰ anywhere for the TV's quick panel", on, { vm.setKeyShortcuts(it) }, icon = AetherIcons.Keyboard,
+        detail = "A short ☰ press still goes to the app; Home, Back, volume and playback are never touched. The service sees key codes only.")
 }
 
 // ------------------------------------------------------------------------------------------------ Integrations
@@ -538,6 +574,12 @@ private fun LazyListScope.advanced(state: LauncherUiState, vm: LauncherViewModel
             detail = entries.take(5).joinToString("\n") { "${it.label}: ${it.value}" }, chevron = true)
     }
     item("events") { OptionRow("Recent events", { vm.show(Overlay.Message("Recent events", EventLog.recent().ifEmpty { listOf("Nothing logged yet.") }.joinToString("\n"))) }, icon = AetherIcons.List, detail = "Launch failures and input-switch attempts", chevron = true) }
+    item("latency") { RemoteResponseRow(vm) }
+    item("prewarm") {
+        val on by vm.prewarm.collectAsState()
+        ToggleRow("Build pages in advance", on, { vm.setPrewarm(it) }, icon = AetherIcons.Layers,
+            detail = "Prepares the other tabs while the remote is idle, so a first visit doesn't pause. Off: each tab is built on its first visit.")
+    }
     item("g4") { GroupLabel("About") }
     item("version") { OptionRow("Aether TV ${BuildConfig.VERSION_NAME}", { vm.show(Overlay.Message("Licenses", LICENSES)) }, icon = AetherIcons.Info, detail = "Build ${BuildConfig.VERSION_CODE} • Select for open-source licenses") }
 }
@@ -593,3 +635,44 @@ private fun WeatherRows(l: com.aether.tv.core.model.HomeLayoutSettings, vm: Laun
     }
 }
 
+
+/** Advanced ▸ Remote response: measured on this TV, split by whether pages are built in advance. */
+@Composable
+private fun RemoteResponseRow(vm: LauncherViewModel) {
+    var tick by remember { mutableIntStateOf(0) }
+    fun line(on: Boolean): String = com.aether.tv.ui.InputLatency.stats(on)?.let { st ->
+        "${if (on) "Pages built in advance" else "Built on first visit"}: median ${st.median} ms, 95 % ${st.p95} ms, worst ${st.worst} ms (${st.count} presses)" +
+            (st.worstDuringBuild?.let { " • worst while a page was being built: $it ms (${st.builds})" } ?: "")
+    } ?: "${if (on) "Pages built in advance" else "Built on first visit"}: no presses measured yet"
+    @Suppress("UNUSED_EXPRESSION") tick
+    OptionRow("Remote response", { tick++ }, icon = AetherIcons.Cpu, detail = line(true) + "\n" + line(false) + "\nKey press to next frame, measured on this TV. Select to update; switch the option below to compare.", minHeight = 44.dp)
+}
+
+/** Shows the last buttons that reached Aether (and, with Remote shortcuts on, the whole system). */
+@Composable
+fun RemoteTestPanel(vm: LauncherViewModel) {
+    val first = remember { FocusRequester() }
+    var tick by remember { mutableIntStateOf(0) }
+    androidx.compose.runtime.DisposableEffect(Unit) {
+        com.aether.tv.platform.RemoteKeyLog.listener = { tick++ }
+        onDispose { com.aether.tv.platform.RemoteKeyLog.listener = null }
+    }
+    @Suppress("UNUSED_EXPRESSION") tick
+    val entries = com.aether.tv.platform.RemoteKeyLog.recent().reversed()
+    com.aether.tv.ui.overlays.SidePanel("Remote buttons", "Press any button. Back closes this panel.", initial = first) {
+        androidx.compose.foundation.layout.Column(verticalArrangement = Arrangement.spacedBy(4.dp)) {
+            if (entries.isEmpty()) com.aether.tv.core.designsystem.AText("Nothing yet.", com.aether.tv.core.designsystem.Aether.type.body)
+            entries.take(10).forEach { e ->
+                com.aether.tv.core.designsystem.AText(
+                    "${com.aether.tv.platform.RemoteKeyLog.label(e.code)} (${e.code})${if (e.repeat > 0) " held" else ""} — reached ${e.where}",
+                    com.aether.tv.core.designsystem.Aether.type.body,
+                )
+            }
+            com.aether.tv.core.designsystem.AText(
+                "If ⚙ opens the TV's panel and doesn't appear here, Fire OS handles it before apps see it — that's expected. \"system\" lines appear only with the ☰ shortcut on.",
+                com.aether.tv.core.designsystem.Aether.type.caption, color = com.aether.tv.core.designsystem.Aether.colors.textSecondary, maxLines = 5,
+            )
+            OptionRow("Clear", { com.aether.tv.platform.RemoteKeyLog.clear(); tick++ }, icon = AetherIcons.RotateCcw, focusRequester = first, minHeight = 38.dp)
+        }
+    }
+}

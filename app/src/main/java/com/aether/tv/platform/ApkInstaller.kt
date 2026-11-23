@@ -26,12 +26,14 @@ import javax.inject.Singleton
 
 /** What Android's installer said about a session. */
 sealed interface InstallEvent {
+    /** Package the session installs (Aether itself, or a store the user asked for). */
+    val pkg: String?
     /** The confirmation screen is up (approve it with the remote). */
-    data object WaitingForYou : InstallEvent
-    data object Installed : InstallEvent
+    data class WaitingForYou(override val pkg: String?) : InstallEvent
+    data class Installed(override val pkg: String?) : InstallEvent
     /** Back or Cancel on the confirmation screen. */
-    data object Cancelled : InstallEvent
-    data class Failed(val reason: String) : InstallEvent
+    data class Cancelled(override val pkg: String?) : InstallEvent
+    data class Failed(override val pkg: String?, val reason: String) : InstallEvent
 }
 
 /**
@@ -99,10 +101,10 @@ class ApkInstaller @Inject constructor(@ApplicationContext private val context: 
      * Installs [apk] as an update of Aether through a PackageInstaller session. Progress and the outcome arrive on
      * [events]. The confirmation screen is started for the user (Fire OS shows it ~1–6 s later).
      */
-    suspend fun install(apk: File): Unit = withContext(Dispatchers.IO) {
+    suspend fun install(apk: File, packageName: String = context.packageName): Unit = withContext(Dispatchers.IO) {
         val installer = pm.packageInstaller
         val params = PackageInstaller.SessionParams(PackageInstaller.SessionParams.MODE_FULL_INSTALL).apply {
-            setAppPackageName(context.packageName)
+            setAppPackageName(packageName)
             if (Build.VERSION.SDK_INT >= 31) setRequireUserAction(PackageInstaller.SessionParams.USER_ACTION_REQUIRED)
         }
         val id = installer.createSession(params)
@@ -110,13 +112,13 @@ class ApkInstaller @Inject constructor(@ApplicationContext private val context: 
             installer.openSession(id).use { s ->
                 s.openWrite("aether.apk", 0, apk.length()).use { out -> apk.inputStream().use { it.copyTo(out) }; s.fsync(out) }
                 registerReceiver()
-                val intent = Intent(ACTION_RESULT).setPackage(context.packageName).addFlags(Intent.FLAG_RECEIVER_FOREGROUND)
+                val intent = Intent(ACTION_RESULT).setPackage(context.packageName).addFlags(Intent.FLAG_RECEIVER_FOREGROUND).putExtra(EXTRA_TARGET, packageName)
                 val flags = PendingIntent.FLAG_UPDATE_CURRENT or (if (Build.VERSION.SDK_INT >= 31) PendingIntent.FLAG_MUTABLE else 0)
                 s.commit(PendingIntent.getBroadcast(context, id, intent, flags).intentSender)
             }
         } catch (e: Exception) {
             runCatching { installer.abandonSession(id) }
-            _events.tryEmit(InstallEvent.Failed(e.message ?: "Android's installer refused the file."))
+            _events.tryEmit(InstallEvent.Failed(packageName, e.message ?: "Android's installer refused the file."))
         }
     }
 
@@ -127,18 +129,19 @@ class ApkInstaller @Inject constructor(@ApplicationContext private val context: 
         val r = object : BroadcastReceiver() {
             override fun onReceive(c: Context, i: Intent) {
                 val status = i.getIntExtra(PackageInstaller.EXTRA_STATUS, PackageInstaller.STATUS_FAILURE)
+                val pkg = i.getStringExtra(EXTRA_TARGET) ?: i.getStringExtra(PackageInstaller.EXTRA_PACKAGE_NAME)
                 val msg = i.getStringExtra(PackageInstaller.EXTRA_STATUS_MESSAGE)
                 when (status) {
                     PackageInstaller.STATUS_PENDING_USER_ACTION -> {
                         @Suppress("DEPRECATION")
                         val confirm = if (Build.VERSION.SDK_INT >= 33) i.getParcelableExtra(Intent.EXTRA_INTENT, Intent::class.java) else i.getParcelableExtra(Intent.EXTRA_INTENT)
                         if (confirm != null) runCatching { context.startActivity(confirm.addFlags(Intent.FLAG_ACTIVITY_NEW_TASK)) }
-                            .onFailure { _events.tryEmit(InstallEvent.Failed("The installer screen couldn't be opened.")) }
-                        _events.tryEmit(InstallEvent.WaitingForYou)
+                            .onFailure { _events.tryEmit(InstallEvent.Failed(pkg, "The installer screen couldn't be opened.")) }
+                        _events.tryEmit(InstallEvent.WaitingForYou(pkg))
                     }
-                    PackageInstaller.STATUS_SUCCESS -> _events.tryEmit(InstallEvent.Installed)
-                    PackageInstaller.STATUS_FAILURE_ABORTED -> _events.tryEmit(InstallEvent.Cancelled)
-                    else -> _events.tryEmit(InstallEvent.Failed(explain(status, msg)))
+                    PackageInstaller.STATUS_SUCCESS -> _events.tryEmit(InstallEvent.Installed(pkg))
+                    PackageInstaller.STATUS_FAILURE_ABORTED -> _events.tryEmit(InstallEvent.Cancelled(pkg))
+                    else -> _events.tryEmit(InstallEvent.Failed(pkg, explain(status, msg)))
                 }
             }
         }
@@ -157,6 +160,7 @@ class ApkInstaller @Inject constructor(@ApplicationContext private val context: 
 
     companion object {
         const val ACTION_RESULT = "com.aether.tv.action.INSTALL_RESULT"
+        private const val EXTRA_TARGET = "com.aether.tv.extra.TARGET_PACKAGE"
 
         fun sha256(bytes: ByteArray): String = MessageDigest.getInstance("SHA-256").digest(bytes).joinToString("") { "%02x".format(it) }
 

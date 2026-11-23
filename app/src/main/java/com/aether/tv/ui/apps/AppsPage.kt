@@ -25,6 +25,8 @@ import androidx.compose.runtime.setValue
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.unit.dp
+import androidx.compose.ui.semantics.contentDescription
+import androidx.compose.ui.semantics.semantics
 import com.aether.tv.core.designsystem.AIcon
 import com.aether.tv.core.designsystem.AText
 import com.aether.tv.core.designsystem.Aether
@@ -100,6 +102,8 @@ fun AppsPage(state: LauncherUiState, vm: LauncherViewModel) {
                 vm.show(Overlay.Choice("Show", filters.map { it.label }, filters.indexOf(filter)) { filter = filters[it] })
             }
             Spacer(Modifier.width(10.dp))
+            PillButton("Store", AetherIcons.Download, chevron = false) { vm.show(Overlay.StorePicker) }
+            Spacer(Modifier.width(10.dp))
             PillButton(lib.sort.label, AetherIcons.List) {
                 vm.show(Overlay.Choice("Sort apps", AppSort.entries.map { it.label }, lib.sort.ordinal) { i ->
                     vm.updateSettings { it.copy(library = it.library.copy(sort = AppSort.entries[i])) }
@@ -139,14 +143,13 @@ fun AppsPage(state: LauncherUiState, vm: LauncherViewModel) {
 }
 
 @Composable
-fun PillButton(label: String, icon: androidx.compose.ui.graphics.vector.ImageVector, onClick: () -> Unit) {
-    GlassTile(onClick = onClick, shape = Aether.shapes.pill, scaleOnFocus = false) {
+fun PillButton(label: String, icon: androidx.compose.ui.graphics.vector.ImageVector, chevron: Boolean = true, onClick: () -> Unit) {
+    GlassTile(onClick = onClick, shape = Aether.shapes.pill, scaleOnFocus = false, modifier = Modifier.semantics { contentDescription = label }) {
         Row(Modifier.padding(horizontal = 14.dp, vertical = 9.dp), verticalAlignment = Alignment.CenterVertically) {
             AIcon(icon, size = 16.dp, tint = Aether.colors.textSecondary)
             Spacer(Modifier.width(9.dp))
             AText(label, Aether.type.body)
-            Spacer(Modifier.width(8.dp))
-            AIcon(AetherIcons.ChevronDown, size = 14.dp, tint = Aether.colors.textSecondary)
+            if (chevron) { Spacer(Modifier.width(8.dp)); AIcon(AetherIcons.ChevronDown, size = 14.dp, tint = Aether.colors.textSecondary) }
         }
     }
 }

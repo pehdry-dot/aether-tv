@@ -1,9 +1,11 @@
 <?xml version="1.0" encoding="utf-8"?>
-<!-- Window changes only. No window content, no key filtering, no screenshots. Focus events are added at run time
-     during a settings session only (HomeButtonService.setFocusEvents). -->
+<!-- Window changes only. No window content, no screenshots. Focus events are added at run time during a settings
+     session only (HomeButtonService.setFocusEvents). Key events (key codes, for ⚙ and a held ☰) are requested at run
+     time only when Settings ▸ TV & System ▸ Remote shortcuts is switched on. -->
 <accessibility-service xmlns:android="http://schemas.android.com/apk/res/android"
     android:accessibilityEventTypes="typeWindowStateChanged"
     android:accessibilityFeedbackType="feedbackGeneric"
     android:notificationTimeout="0"
     android:canRetrieveWindowContent="false"
+    android:canRequestFilterKeyEvents="true"
     android:description="@string/home_service_description" />

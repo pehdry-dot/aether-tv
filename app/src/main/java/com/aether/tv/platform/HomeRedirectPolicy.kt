@@ -17,7 +17,19 @@ class HomeRedirectPolicy(private val ownPackage: String) {
         data object Redirect : Decision
     }
 
+    sealed interface KeyDecision {
+        /** Let the key through to the app (everything except the tail of a held ☰ with the shortcut on). */
+        data object PassThrough : KeyDecision
+        /** Swallow it: the rest of a held ☰ that opened the TV's quick panel. */
+        data object Consume : KeyDecision
+        /** ☰ has been held long enough: open the TV's quick panel (and swallow this key). */
+        data object OpenQuickSettings : KeyDecision
+    }
+
     private var lastRedirectAt = NEVER
+    private var panelSessionUntil = NEVER
+    private var menuDownAt = NEVER
+    private var menuFired = false
     private var cooldownUntil = NEVER
     private val recent = ArrayDeque<Long>()
     private var settingsSessionUntil = NEVER
@@ -28,6 +40,38 @@ class HomeRedirectPolicy(private val ownPackage: String) {
 
     val inSettingsSession: Boolean get() = settingsSessionUntil != NEVER
 
+    /** The TV's own quick panel (⚙ on the remote, or Aether's shortcut) is opening over an app or HDMI input. */
+    val inPanelSession: Boolean get() = panelSessionUntil != NEVER
+
+    /**
+     * The TV's quick panel is about to show. Some Fire OS builds draw it from Amazon's launcher, whose window looks like
+     * Amazon's home: don't bring Aether over it until another app's window shows (the panel closed) or a minute passes.
+     */
+    fun beginPanelSession(now: Long) { panelSessionUntil = now + PANEL_SESSION_MS }
+
+    /**
+     * Keys seen by the Home button service (only when "Remote shortcuts" is on). Home, Back, volume, playback and every
+     * other key pass through untouched; ⚙ only marks a panel session. With [menuShortcut], ☰ held for [MENU_HOLD_MS]
+     * opens the TV's quick panel; a short ☰ press still reaches the app as usual.
+     */
+    fun onKey(code: Int, down: Boolean, repeat: Int, now: Long, menuShortcut: Boolean): KeyDecision {
+        if (code == KEYCODE_SETTINGS && down && repeat == 0) { beginPanelSession(now); return KeyDecision.PassThrough }
+        if (code != KEYCODE_MENU || !menuShortcut) return KeyDecision.PassThrough
+        if (down) {
+            if (repeat == 0) { menuDownAt = now; menuFired = false; return KeyDecision.PassThrough }
+            if (menuFired) return KeyDecision.Consume
+            if (menuDownAt != NEVER && now - menuDownAt >= MENU_HOLD_MS) {
+                menuFired = true
+                beginPanelSession(now)
+                return KeyDecision.OpenQuickSettings
+            }
+            return KeyDecision.PassThrough
+        }
+        val fired = menuFired
+        menuDownAt = NEVER; menuFired = false
+        return if (fired) KeyDecision.Consume else KeyDecision.PassThrough
+    }
+
     /** Aether is about to open one of Amazon's settings screens. */
     fun beginSettingsSession(now: Long) { settingsSessionUntil = now + SETTINGS_SESSION_MAX_MS }
 
@@ -35,11 +79,13 @@ class HomeRedirectPolicy(private val ownPackage: String) {
 
     fun onWindow(pkg: String, cls: String?, now: Long): Decision {
         if (settingsSessionUntil != NEVER && now > settingsSessionUntil) endSettingsSession() // fail-safe
+        if (panelSessionUntil != NEVER && now > panelSessionUntil) panelSessionUntil = NEVER
         return when {
-            pkg == ownPackage -> { endSettingsSession(); Decision.Ignore }
-            isAmazonHome(pkg, cls) -> if (inSettingsSession) Decision.Ignore else redirect(now)
-            pkg in NEUTRAL || pkg in AMAZON_SETTINGS_SURFACES || pkg == AMAZON_LAUNCHER -> Decision.Ignore
-            else -> { endSettingsSession(); Decision.Ignore } // an app opened: whatever settings visit there was is over
+            pkg == ownPackage -> { endSettingsSession(); panelSessionUntil = NEVER; Decision.Ignore }
+            isAmazonHome(pkg, cls) -> if (inSettingsSession || inPanelSession) Decision.Ignore else redirect(now)
+            pkg in NEUTRAL || pkg in AMAZON_SETTINGS_SURFACES || pkg == AMAZON_LAUNCHER || pkg in TV_SURFACES -> Decision.Ignore
+            // An app (or the HDMI input's player) is showing again: the settings visit or quick panel is over.
+            else -> { endSettingsSession(); panelSessionUntil = NEVER; Decision.Ignore }
         }
     }
 
@@ -73,6 +119,10 @@ class HomeRedirectPolicy(private val ownPackage: String) {
         const val LOOP_WINDOW_MS = 10_000L
         const val COOLDOWN_MS = 60_000L
         const val SETTINGS_SESSION_MAX_MS = 30 * 60_000L
+        const val PANEL_SESSION_MS = 60_000L
+        const val MENU_HOLD_MS = 700L
+        const val KEYCODE_SETTINGS = 176
+        const val KEYCODE_MENU = 82
         private const val NEVER = Long.MIN_VALUE / 4
 
         /** System surfaces that appear over anything and say nothing about where the user is going. */
@@ -84,6 +134,13 @@ class HomeRedirectPolicy(private val ownPackage: String) {
             "com.amazon.tv.parentalcontrols", "com.amazon.tv.consents", "com.amazon.tv.notificationcenter",
             "com.amazon.tv.ime", "com.android.permissioncontroller",
         )
+
+        /**
+         * The TV's picture/sound panels and the HDMI player: showing one says nothing about Home. The quick panel was
+         * reported as `com.amazon.tv.settings.v2/.hud.HudActivity` (Fire OS 8 TV); the picture-quality apps differ by
+         * chipset (MediaTek on the M450).
+         */
+        val TV_SURFACES = setOf("com.amazon.tv.pqsettings", "com.amazon.tv.settings.mediatek", "com.amazon.tv.settings.amlogic")
 
         fun isAmazonHome(pkg: String, cls: String?): Boolean =
             pkg == AMAZON_LAUNCHER && cls != null && cls.startsWith("$AMAZON_LAUNCHER.ui.HomeActivity")

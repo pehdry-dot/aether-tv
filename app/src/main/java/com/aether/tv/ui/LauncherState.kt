@@ -80,6 +80,12 @@ sealed interface Overlay {
     data object GlassSettings : Overlay
     /** Typeface and text size with live samples. */
     data object Typography : Overlay
+    /** Settings ▸ TV & System ▸ Storage (Aether's own, works without Amazon's settings). */
+    data object Storage : Overlay
+    /** Remote button test: which keys reach Aether. */
+    data object RemoteTest : Overlay
+    /** Apps ▸ Store: stores that can open on this TV, and how to get one. */
+    data object StorePicker : Overlay
 }
 
 /** Remote-friendly reordering: while active, Left/Right moves the item; OK or Back finishes. */

@@ -24,6 +24,8 @@ class MainActivity : ComponentActivity() {
     /** Every key, overlays included: background page building waits for the remote to go quiet. */
     override fun dispatchKeyEvent(event: android.view.KeyEvent): Boolean {
         com.aether.tv.ui.UserActivity.lastKeyAt = android.os.SystemClock.uptimeMillis()
+        com.aether.tv.platform.RemoteKeyLog.record(event.keyCode, event.action == android.view.KeyEvent.ACTION_DOWN, event.repeatCount, "Aether")
+        com.aether.tv.ui.InputLatency.onKey(event)
         return super.dispatchKeyEvent(event)
     }
 

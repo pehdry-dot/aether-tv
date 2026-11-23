@@ -35,12 +35,46 @@ class HomeButtonService : AccessibilityService() {
     private val scope = CoroutineScope(SupervisorJob() + Dispatchers.Main.immediate)
     @Volatile private var paused = false
 
+    @Volatile private var keyShortcuts = false
+
     override fun onServiceConnected() {
         running = this
         EventLog.log("Home button service connected")
         val repo = EntryPointAccessors.fromApplication(applicationContext, HomeServiceEntryPoint::class.java).settings()
         scope.launch { repo.observeFlag(FLAG_PAUSED).collect { paused = it } }
+        scope.launch { repo.observeFlag(FLAG_KEY_SHORTCUTS).collect { keyShortcuts = it; setKeyFilter(it) } }
         setFocusEvents(false)
+    }
+
+    /**
+     * Only with Settings ▸ TV & System ▸ Remote shortcuts on: sees key codes (never text; a TV remote has none) to
+     * notice ⚙ and a held ☰. Everything passes through except the rest of a ☰ held to open the TV's quick panel.
+     */
+    override fun onKeyEvent(event: android.view.KeyEvent): Boolean {
+        val down = event.action == android.view.KeyEvent.ACTION_DOWN
+        RemoteKeyLog.record(event.keyCode, down, event.repeatCount, "system")
+        return when (policy.onKey(event.keyCode, down, event.repeatCount, SystemClock.uptimeMillis(), keyShortcuts)) {
+            HomeRedirectPolicy.KeyDecision.PassThrough -> false
+            HomeRedirectPolicy.KeyDecision.Consume -> true
+            HomeRedirectPolicy.KeyDecision.OpenQuickSettings -> { openQuickPanel(); true }
+        }
+    }
+
+    /** The TV's own panel: its activity where this TV exposes it, else Android's quick-settings action. */
+    private fun openQuickPanel() {
+        val shortcuts = EntryPointAccessors.fromApplication(applicationContext, HomeServiceEntryPoint::class.java).shortcuts()
+        val i = TvQuickSettings.intent(shortcuts)
+        val ok = i != null && runCatching { startActivity(i) }.isSuccess
+        if (!ok) {
+            val global = performGlobalAction(GLOBAL_ACTION_QUICK_SETTINGS)
+            EventLog.log("Quick panel: " + if (global) "opened with Android's quick-settings action" else "no way to open it on this TV")
+        } else EventLog.log("Quick panel opened (${i!!.component?.shortClassName})")
+    }
+
+    private fun setKeyFilter(on: Boolean) {
+        val info = serviceInfo ?: return
+        val flags = if (on) info.flags or AccessibilityServiceInfo.FLAG_REQUEST_FILTER_KEY_EVENTS else info.flags and AccessibilityServiceInfo.FLAG_REQUEST_FILTER_KEY_EVENTS.inv()
+        if (flags != info.flags) { info.flags = flags; serviceInfo = info }
     }
 
     override fun onDestroy() {
@@ -79,9 +113,14 @@ class HomeButtonService : AccessibilityService() {
 
     companion object {
         const val FLAG_PAUSED = "home_redirect_paused"
+        /** Settings ▸ TV & System ▸ Remote shortcuts: hold ☰ anywhere for the TV's quick panel. */
+        const val FLAG_KEY_SHORTCUTS = "remote_key_shortcuts"
         @Volatile var running: HomeButtonService? = null
             private set
         private val policy = HomeRedirectPolicy("com.aether.tv")
+
+        /** The TV's quick panel is opening: don't cover it, even if this TV draws it from Amazon's launcher. */
+        fun beginPanelSession() = policy.beginPanelSession(SystemClock.uptimeMillis())
 
         /** Called just before Aether opens one of Amazon's settings screens, so the service doesn't cover it. */
         fun beginSettingsSession() {
@@ -106,4 +145,5 @@ class HomeButtonService : AccessibilityService() {
 @dagger.hilt.InstallIn(dagger.hilt.components.SingletonComponent::class)
 interface HomeServiceEntryPoint {
     fun settings(): SettingsRepository
+    fun shortcuts(): SystemShortcuts
 }

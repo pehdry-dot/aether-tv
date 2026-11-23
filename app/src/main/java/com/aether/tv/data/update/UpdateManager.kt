@@ -102,6 +102,7 @@ class UpdateManager @Inject constructor(
         }
         scope.launch {
             installer.events.collect { e ->
+                if (e.pkg != null && e.pkg != context.packageName) return@collect // a store install, not Aether's update
                 val s = _state.value
                 val (release, meta) = when (s) {
                     is UpdateState.Installing -> s.release to s.meta
@@ -109,9 +110,9 @@ class UpdateManager @Inject constructor(
                     else -> return@collect
                 }
                 when (e) {
-                    InstallEvent.WaitingForYou -> _state.value = UpdateState.Installing(release, meta)
-                    InstallEvent.Installed -> EventLog.log("Update ${meta.versionName} installed")
-                    InstallEvent.Cancelled -> _state.value = UpdateState.Ready(release, meta, apkFile(meta), "Installation was cancelled. Nothing changed.")
+                    is InstallEvent.WaitingForYou -> _state.value = UpdateState.Installing(release, meta)
+                    is InstallEvent.Installed -> EventLog.log("Update ${meta.versionName} installed")
+                    is InstallEvent.Cancelled -> _state.value = UpdateState.Ready(release, meta, apkFile(meta), "Installation was cancelled. Nothing changed.")
                     is InstallEvent.Failed -> {
                         EventLog.log("Update ${meta.versionName} failed: ${e.reason}")
                         _state.value = UpdateState.Failed(e.reason, UpdateState.Retry.Install, release, meta)

@@ -75,6 +75,8 @@ class LauncherViewModel @Inject constructor(
     val assets: com.aether.tv.data.assets.AssetStore,
     val updates: com.aether.tv.data.update.UpdateManager,
     private val updatesInstaller: com.aether.tv.platform.ApkInstaller,
+    val storage: com.aether.tv.data.storage.StorageInspector,
+    val stores: com.aether.tv.data.store.AppStores,
 ) : AndroidViewModel(app) {
 
     private val context get() = getApplication<Application>()
@@ -144,6 +146,7 @@ class LauncherViewModel @Inject constructor(
                     if (show) weatherRepo.update(city, unit) else weatherRepo.clear()
                 }
         }
+        viewModelScope.launch { if (settingsRepo.flag(PREWARM_OFF)) PagePrewarm.enabled = false }
         // A wallpaper preview can't be open at start: whatever is left in the preview folder was abandoned.
         viewModelScope.launch(Dispatchers.IO) { assets.clearPreviews() }
         // A restore that was interrupted (power cut, crash) is completed from its private copy.
@@ -181,6 +184,7 @@ class LauncherViewModel @Inject constructor(
         mediaRepo.startWatching()
         // Updates: finish an install that waited for "Install unknown apps"; the daily check when it's due.
         updates.onResume()
+        stores.onResume()
         // Weather: on coming to the front, then every 30 minutes while Aether stays there (never in the background).
         weatherLoop?.cancel()
         weatherLoop = viewModelScope.launch {
@@ -417,6 +421,26 @@ class LauncherViewModel @Inject constructor(
     }
     fun refreshMedia() = mediaRepo.refresh(force = true)
 
+    // ---------- stores & remote ----------
+    fun openStore(o: com.aether.tv.data.store.StoreOption) {
+        val i = o.launch ?: return show(Overlay.Message(o.store.label, "${o.store.label} can't open on this TV."))
+        if (runCatching { context.startActivity(i) }.isFailure) show(Overlay.Message(o.store.label, "${o.store.label} couldn't be opened."))
+    }
+    fun openIntent(i: android.content.Intent) { if (runCatching { context.startActivity(i) }.isFailure) notice("That couldn't be opened") }
+
+    /** Settings ▸ TV & System ▸ Remote shortcuts: hold ☰ anywhere for the TV's quick panel (Home button service). */
+    val keyShortcuts: StateFlow<Boolean> = settingsRepo.observeFlag(com.aether.tv.platform.HomeButtonService.FLAG_KEY_SHORTCUTS)
+        .stateIn(viewModelScope, SharingStarted.Eagerly, false)
+    fun setKeyShortcuts(on: Boolean) = viewModelScope.launch { settingsRepo.setFlag(com.aether.tv.platform.HomeButtonService.FLAG_KEY_SHORTCUTS, on) }
+    fun openTvQuickPanel() {
+        if (!com.aether.tv.platform.TvQuickSettings.open(context, shortcuts)) show(Overlay.Message("TV quick panel",
+            "This TV doesn't let apps open its quick panel directly. Use the remote's ⚙ button (or hold Home) while watching — see Remote shortcuts."))
+    }
+
+    /** Settings ▸ Advanced: build hidden pages in advance (on by default). */
+    val prewarm: StateFlow<Boolean> = settingsRepo.observeFlag(PREWARM_OFF).map { !it }.stateIn(viewModelScope, SharingStarted.Eagerly, true)
+    fun setPrewarm(on: Boolean) = viewModelScope.launch { PagePrewarm.enabled = on; settingsRepo.setFlag(PREWARM_OFF, !on) }
+
     // ---------- updates ----------
     fun installedApp() = updatesInstaller.installed()
     fun canInstallApps() = updatesInstaller.canInstall()
@@ -532,6 +556,7 @@ class LauncherViewModel @Inject constructor(
     fun gameKindsFor(app: AppInfo): GameKind? = app.gameKind
 
     companion object {
+        const val PREWARM_OFF = "prewarm_off"
         /** Popular TV apps used to pre-fill Favorites on first run, only if installed. */
         val PREFERRED_PACKAGES = listOf(
             "com.netflix.ninja", "com.netflix.mediaclient", "com.disney.disneyplus", "com.amazon.amazonvideo.livingroom", "com.amazon.avod",

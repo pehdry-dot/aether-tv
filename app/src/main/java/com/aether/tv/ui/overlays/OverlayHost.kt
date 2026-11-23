@@ -149,6 +149,9 @@ private fun OverlayContent(o: Overlay, state: LauncherUiState, vm: LauncherViewM
         is Overlay.WallpaperPreview -> com.aether.tv.ui.settings.WallpaperPreviewScreen(o, state, vm)
         Overlay.GlassSettings -> com.aether.tv.ui.settings.GlassSettingsPanel(state, vm)
         Overlay.Typography -> com.aether.tv.ui.settings.TypographyEditor(state, vm)
+        Overlay.Storage -> com.aether.tv.ui.settings.StorageScreen(state, vm)
+        Overlay.RemoteTest -> com.aether.tv.ui.settings.RemoteTestPanel(vm)
+        Overlay.StorePicker -> com.aether.tv.ui.apps.StorePickerSheet(state, vm)
     }
 }
 
