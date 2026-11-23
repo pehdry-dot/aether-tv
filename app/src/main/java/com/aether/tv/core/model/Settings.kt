@@ -66,7 +66,7 @@ enum class AccentColor(val argb: Long, val label: String) {
 }
 
 @Serializable enum class IconSize(val scale: Float, val label: String) { Small(0.85f, "Small"), Medium(1f, "Medium"), Large(1.18f, "Large") }
-@Serializable enum class AppLogoStyle(val label: String) { White("White logos"), Original("Original colours") }
+@Serializable enum class AppLogoStyle(val label: String) { White("White logos"), Symbols("CleanFrame symbols"), Original("Original colours") }
 /** Typefaces. All but System are bundled (SIL OFL 1.1, licenses/), so they look the same on every TV. */
 @Serializable enum class FontChoice(val label: String, val description: String) {
     Inter("Inter", "Aether's default: neutral and compact"),

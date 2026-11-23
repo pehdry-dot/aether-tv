@@ -109,7 +109,7 @@ private fun LazyListScope.appearance(state: LauncherUiState, vm: LauncherViewMod
     item("glow") { SliderRow("Focus glow", a.focusGlow, 0f..1f, 0.05f, { v -> vm.appearance { it.copy(focusGlow = v) } }, ::pct, detail = "0% shows only the thin focus border") }
     item("scale") { SliderRow("Focus zoom", a.focusScale, 1f..1.1f, 0.01f, { v -> vm.appearance { it.copy(focusScale = v) } }, { "${((it - 1f) * 100).roundToInt()}%" }) }
     item("g4") { GroupLabel("Icons & text") }
-    item("logos") { ChoiceRow("App logos", com.aether.tv.core.model.AppLogoStyle.entries, a.appLogos, { it.label }, { v -> vm.appearance { it.copy(appLogos = v) } }, icon = AetherIcons.AppWindow, detail = "White logos sit in a glass dock on Home") }
+    item("logos") { ChoiceRow("App logos", com.aether.tv.core.model.AppLogoStyle.entries, a.appLogos, { it.label }, { v -> vm.appearance { it.copy(appLogos = v) } }, icon = AetherIcons.AppWindow, detail = "White logos or CleanFrame-style symbols sit in a glass dock on Home; your custom icons always show") }
     item("icon") { ChoiceRow("Icon size", IconSize.entries, a.iconSize, { it.label }, { v -> vm.appearance { it.copy(iconSize = v) } }, icon = AetherIcons.AppsGrid) }
     item("labels") { ToggleRow("Show app names", a.showAppLabels, { v -> vm.appearance { it.copy(showAppLabels = v) } }, icon = AetherIcons.Tag) }
     item("banners") { ToggleRow("Use app banners", state.settings.library.useBanners, { v -> vm.library { it.copy(useBanners = v) } }, detail = "Wide TV banners instead of icons, where apps provide them", icon = AetherIcons.AppWindow) }
@@ -599,7 +599,10 @@ private fun BackupPickerRows(vm: LauncherViewModel) {
 }
 
 const val LICENSES = "Aether TV is built with AndroidX, Jetpack Compose, Hilt/Dagger, Room, DataStore, Coil, OkHttp and kotlinx (Apache License 2.0).\n\n" +
-    "Inter typeface © The Inter Project Authors — SIL Open Font License 1.1.\n" +
+    "Typefaces, SIL Open Font License 1.1: Inter © The Inter Project Authors; Atkinson Hyperlegible Next © The Atkinson Hyperlegible Next Project Authors; " +
+    "Open Sans © The Open Sans Project Authors; Lexend © The Lexend Project Authors; Nunito © The Nunito Project Authors; Source Serif 4 © The Source Serif 4 Project Authors.\n" +
+    "CleanFrame symbols: brand marks from Simple Icons (CC0 1.0) and Custom Brand Icons (MIT); sizing modelled on CleanFrame by Nathan Clark (MIT). " +
+    "Brand marks identify their services; their owners keep their trademark rights, and no endorsement is implied.\n" +
     "Icons derived from Lucide (lucide.dev) — ISC License.\n" +
     "Wallpapers are original procedurally generated artwork made for Aether.\n" +
     "The Xbox Series X photo is taken from the owner's own design references for personal use; Xbox is a trademark of Microsoft.\n\n" +

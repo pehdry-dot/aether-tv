@@ -165,6 +165,59 @@ object AppIconLoader {
     /** Vector and adaptive artwork is drawn this large (longest side) before the logo is cut out and shrunk. */
     private const val LOGO_VECTOR_PX = 1024
 
+    /**
+     * A compact symbol cut out of the app's own *icon* (its monochrome layer, foreground, or the whole icon; never the
+     * wide banner wordmark) for the symbols style. Null when the icon is Android's generic one (several sideloaded apps
+     * share it, so it identifies nothing) or no clean shape can be cut out.
+     */
+    fun symbolMask(context: Context, app: AppInfo): LogoMask.Result? {
+        symbolMasks[app.key]?.let { return it.takeIf { r -> r.width > 0 } }
+        val pm = context.packageManager
+        val cn = app.component
+        val info = runCatching { pm.getActivityInfo(cn, 0) }.getOrNull()
+        val res = runCatching { pm.getResourcesForApplication(app.packageName) }.getOrNull()
+        val icon = (info?.iconResource?.takeIf { it != 0 && res != null }?.let { id -> runCatching { res!!.getDrawableForDensity(id, android.util.DisplayMetrics.DENSITY_XXXHIGH, null) }.getOrNull() })
+            ?: runCatching { pm.getActivityIcon(cn) }.getOrNull()
+        val result = if (icon == null || isGenericIcon(pm, icon)) null else {
+            val candidates = sequence {
+                if (icon is android.graphics.drawable.AdaptiveIconDrawable) {
+                    if (android.os.Build.VERSION.SDK_INT >= 33) icon.monochrome?.let { yield(it) }
+                    icon.foreground?.let { yield(it) }
+                }
+                yield(icon)
+            }
+            candidates.mapNotNull { d ->
+                val src = runCatching { d.toLogoSource() }.getOrNull() ?: return@mapNotNull null
+                val px = IntArray(src.width * src.height).also { src.getPixels(it, 0, src.width, 0, 0, src.width, src.height) }
+                LogoMask.extract(px, src.width, src.height)
+            }.firstOrNull { it.width <= it.height * 2 && it.height <= it.width * 2 } // compact, not a wordmark
+        }
+        symbolMasks[app.key] = result ?: LogoMask.Result(0, 0, IntArray(0))
+        return result
+    }
+
+    private val symbolMasks = java.util.concurrent.ConcurrentHashMap<String, LogoMask.Result>()
+
+    /** True when [icon] is Android's default app icon (compared as small grey thumbnails). */
+    fun isGenericIcon(pm: PackageManager, icon: Drawable): Boolean {
+        val generic = runCatching { pm.defaultActivityIcon }.getOrNull() ?: return false
+        return iconsLookAlike(thumb(icon), thumb(generic))
+    }
+
+    private fun thumb(d: Drawable): IntArray {
+        val b = Bitmap.createBitmap(16, 16, Bitmap.Config.ARGB_8888)
+        d.setBounds(0, 0, 16, 16); d.draw(Canvas(b))
+        return IntArray(256).also { b.getPixels(it, 0, 16, 0, 0, 16, 16) }
+    }
+
+    /** Pure: two 16×16 thumbnails differ by less than 6 % average per channel. */
+    fun iconsLookAlike(a: IntArray, b: IntArray): Boolean {
+        if (a.size != b.size) return false
+        var diff = 0L
+        for (i in a.indices) for (s in intArrayOf(24, 16, 8, 0)) diff += kotlin.math.abs(((a[i] ushr s) and 255) - ((b[i] ushr s) and 255))
+        return diff < a.size * 4L * 255 * 0.06
+    }
+
     fun packageInstalled(pm: PackageManager, pkg: String) = runCatching { pm.getPackageInfo(pkg, 0); true }.getOrDefault(false)
 }
 
@@ -178,7 +231,7 @@ fun AppIcon(app: AppInfo, size: Dp, modifier: Modifier = Modifier, banner: Boole
     }
     Box(modifier.size(if (banner) size * 16f / 9f else size, size), contentAlignment = Alignment.Center) {
         image?.let { Image(it, null, Modifier.size(if (banner) size * 16f / 9f else size, size), contentScale = ContentScale.Fit, filterQuality = FilterQuality.Medium) }
-            ?: AText(app.label.take(1).uppercase(), Aether.type.panelTitle, color = Aether.colors.textSecondary)
+            ?: AText(app.label.take(1).uppercase(), Aether.type.panelTitle.copy(fontSize = with(density) { (size * 0.5f).toSp() }, lineHeight = with(density) { (size * 0.6f).toSp() }), color = Aether.colors.textSecondary)
     }
 }
 

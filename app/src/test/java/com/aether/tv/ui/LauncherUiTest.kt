@@ -22,11 +22,13 @@ abstract class LauncherUiTest {
     @get:Rule val rule = createAndroidComposeRule<ComponentActivity>()
     protected lateinit var env: TestEnv
     protected lateinit var vm: LauncherViewModel
+    /** More installed apps for a test (the demo apps are always there). */
+    protected open val extraApps: List<com.aether.tv.data.apps.InstalledApp> = emptyList()
 
     @Before fun setUpLauncher() {
         PagePrewarm.enabled = false // tests decide when pages are built
         PagePrewarm.builds.clear()
-        env = TestEnv()
+        env = TestEnv(com.aether.tv.DemoApps.installed() + extraApps)
         UiHarness.seed(env)
         vm = env.viewModel()
         vm.testStateTransform.value = UiHarness::transform

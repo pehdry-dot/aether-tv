@@ -92,7 +92,8 @@ fun AppTile(
         if (mono) Column(Modifier.fillMaxSize().padding(horizontal = 8.dp, vertical = 6.dp), horizontalAlignment = Alignment.CenterHorizontally, verticalArrangement = Arrangement.Center) {
             // White logos replace both icons and banners (a banner, when the app has one, is where the logo comes from).
             val logoH = if (showLabel) (height.value * 0.33f * iconScale).dp else (height.value * 0.42f * iconScale).dp
-            AppLogo(app, maxWidth = logoH * 3.1f, height = logoH)
+            if (LocalAether.current.symbols) com.aether.tv.core.designsystem.AppSymbol(app, width = logoH * 2.2f, height = logoH * 1.35f)
+            else AppLogo(app, maxWidth = logoH * 3.1f, height = logoH)
             if (showLabel) {
                 Spacer(Modifier.height(6.dp))
                 AText(app.label, Aether.type.tileLabel, color = if (focused) Aether.colors.textPrimary else Aether.colors.textSecondary.copy(alpha = 0.85f), align = TextAlign.Center)

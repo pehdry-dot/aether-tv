@@ -109,6 +109,8 @@ data class AetherThemeData(
     val showLabels: Boolean,
     /** App logos drawn as single-colour marks (and the Home apps row as a dock). */
     val monoLogos: Boolean = false,
+    /** Compact brand symbols (CleanFrame style) instead of wordmarks; implies [monoLogos]. */
+    val symbols: Boolean = false,
 )
 
 val LocalAether = staticCompositionLocalOf { buildTheme(AppearanceSettings(), BehaviorSettings()) }
@@ -219,7 +221,8 @@ fun buildTheme(a: AppearanceSettings, b: BehaviorSettings): AetherThemeData {
         type = type,
         dimens = AetherDimens(screenH = (48 + b.overscanDp).dp, screenTop = (24 + b.overscanDp / 2).dp, gap = 12.dp, iconScale = a.iconSize.scale, textScale = s),
         showLabels = a.showAppLabels,
-        monoLogos = a.appLogos == com.aether.tv.core.model.AppLogoStyle.White,
+        monoLogos = a.appLogos != com.aether.tv.core.model.AppLogoStyle.Original,
+        symbols = a.appLogos == com.aether.tv.core.model.AppLogoStyle.Symbols,
     )
 }
 

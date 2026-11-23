@@ -121,14 +121,15 @@ fun AppsPage(state: LauncherUiState, vm: LauncherViewModel) {
                 )
             }
             lib.view == LibraryView.Grid -> LazyVerticalGrid(
-                columns = GridCells.Fixed(8),
+                // Fewer, taller tiles as the text grows, so names stay readable at 150 %.
+                columns = GridCells.Fixed(gridColumns(Aether.dimens.textScale)),
                 horizontalArrangement = Arrangement.spacedBy(11.dp),
                 verticalArrangement = Arrangement.spacedBy(12.dp),
                 contentPadding = PaddingValues(bottom = 24.dp, top = 8.dp, start = com.aether.tv.ui.common.RowBleed, end = com.aether.tv.ui.common.RowBleed),
                 modifier = Modifier.fillMaxSize().bleedHorizontal().rowFocus(restore),
             ) {
                 items(apps, key = { it.key }) { app ->
-                    AppTile(app, { vm.launchApp(app) }, { vm.onAppLongPress(app, null) }, height = 66.dp, banner = lib.useBanners)
+                    AppTile(app, { vm.launchApp(app) }, { vm.onAppLongPress(app, null) }, height = (66 * Aether.dimens.textScale.coerceAtLeast(1f)).dp, banner = lib.useBanners)
                 }
             }
             else -> LazyColumn(
@@ -173,4 +174,12 @@ private fun AppListRow(app: AppInfo, onClick: () -> Unit, onLong: () -> Unit) {
             }
         }
     }
+}
+
+/** Columns of the Apps grid for a text size: 8 at normal sizes, down to 5 at 150 %. */
+fun gridColumns(textScale: Float): Int = when {
+    textScale <= 1.1f -> 8
+    textScale <= 1.25f -> 7
+    textScale <= 1.4f -> 6
+    else -> 5
 }

@@ -106,7 +106,11 @@ private fun Divider(h: Dp) {
 }
 
 private fun LazyListScope.favItems(list: List<Favorite>, state: LauncherUiState, vm: LauncherViewModel, w: Dp, h: Dp, art: Boolean = false) {
-    items(list.size, key = { list[it].id }) { i -> FavoriteItem(list[i], state, vm, Modifier.width(w).height(h), h, art) }
+    items(list.size, key = { list[it].id }) { i ->
+        // Taller with larger text, so the name under an icon stays readable.
+        val th = h * Aether.dimens.textScale.coerceAtLeast(1f)
+        FavoriteItem(list[i], state, vm, Modifier.width(w).height(th), th, art)
+    }
 }
 
 @Composable

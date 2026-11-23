@@ -172,7 +172,9 @@ fun DialogPanel(
     content: @Composable ColumnScope.() -> Unit,
 ) {
     Scrim {
-        GlassPanel(Modifier.align(Alignment.Center).width(width).heightIn(max = 480.dp), tintAlpha = if (Aether.colors.isDark) 0.14f else 0.75f) {
+        // Wider with larger text (up to most of the screen), so labels and buttons stay on one line.
+        val w = (width.value * Aether.dimens.textScale.coerceAtLeast(1f)).coerceAtMost(860f).dp
+        GlassPanel(Modifier.align(Alignment.Center).width(w).heightIn(max = 480.dp), tintAlpha = if (Aether.colors.isDark) 0.14f else 0.75f) {
             Column(Modifier.padding(20.dp).focusGroup()) {
                 Row(verticalAlignment = Alignment.CenterVertically) {
                     if (icon != null) { icon(); Spacer(Modifier.width(14.dp)) }
@@ -193,7 +195,7 @@ fun DialogPanel(
 @Composable
 fun SidePanel(title: String, subtitle: String?, initial: FocusRequester?, content: @Composable ColumnScope.() -> Unit) {
     Scrim(0.45f) {
-        GlassPanel(Modifier.align(Alignment.CenterEnd).fillMaxHeight().width(340.dp).padding(vertical = 18.dp).padding(end = 18.dp), tintAlpha = if (Aether.colors.isDark) 0.14f else 0.75f) {
+        GlassPanel(Modifier.align(Alignment.CenterEnd).fillMaxHeight().width((340 * Aether.dimens.textScale.coerceAtLeast(1f)).dp).padding(vertical = 18.dp).padding(end = 18.dp), tintAlpha = if (Aether.colors.isDark) 0.14f else 0.75f) {
             Column(Modifier.padding(20.dp).focusGroup()) {
                 AText(title, Aether.type.panelTitle)
                 if (subtitle != null) AText(subtitle, Aether.type.caption, color = Aether.colors.textSecondary, maxLines = 2, modifier = Modifier.padding(top = 2.dp))

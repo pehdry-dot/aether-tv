@@ -92,7 +92,7 @@ private fun AppsRow(state: LauncherUiState, vm: LauncherViewModel, requester: Fo
     val favs = state.favoriteApps.filter { !it.second.hidden }.take(layout.appShortcutCount)
     val restore = state.settings.behavior.restoreFocus
     val gap = 11.dp
-    val height = layout.tileSize.heightDp.dp
+    val height = (layout.tileSize.heightDp * Aether.dimens.textScale.coerceAtLeast(1f)).dp
     BoxWithConstraints(Modifier.fillMaxWidth()) {
         val slots = layout.appShortcutCount + if (layout.showAllAppsTile) 1 else 0
         val w = fillWidth(maxWidth, slots.coerceAtLeast(5), gap)
@@ -145,6 +145,9 @@ private fun AppsDock(
     val itemW = (124 * scale).dp
     val tileH = (58 * scale).dp
     val logoH = (25 * scale).dp
+    // Symbols are compact and square-ish, so they get more height than a wordmark (as in CleanFrame's dock).
+    val symbols = com.aether.tv.core.designsystem.LocalAether.current.symbols
+    val symbolH = (36 * scale).dp
     val gap = 6.dp
     val count = favs.size + if (showAllApps) 1 else 0
     // Spread the apps evenly across the dock while they fit; past that it scrolls like any other row.
@@ -173,7 +176,10 @@ private fun AppsDock(
                     focusRequester = if (i == 0) requester else null,
                     moving = moving,
                     tileModifier = Modifier.moveKeys(moving, vm::moveBy, vm::endMove),
-                ) { AppLogo(app, maxWidth = itemW - 40.dp, height = logoH) }
+                ) {
+                    if (symbols) com.aether.tv.core.designsystem.AppSymbol(app, width = itemW - 40.dp, height = symbolH)
+                    else AppLogo(app, maxWidth = itemW - 40.dp, height = logoH)
+                }
             }
             if (showAllApps) item(key = "all-apps") {
                 DockItem("All Apps", { onOpenTab(LauncherTab.Apps) }, Modifier.width(itemW), tileHeight = tileH) {

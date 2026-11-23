@@ -68,7 +68,7 @@ fun StorageScreen(state: LauncherUiState, vm: LauncherViewModel) {
         }
         Column(Modifier.fillMaxWidth().padding(bottom = 10.dp)) {
             val used = (r.totalBytes - r.freeBytes).coerceAtLeast(0)
-            AText("${fmt(r.freeBytes)} free of ${fmt(r.totalBytes)}", Aether.type.bodyStrong)
+            AText(if (r.totalBytes > 0) "${fmt(r.freeBytes)} free of ${fmt(r.totalBytes)}" else "This TV didn't report its capacity", Aether.type.bodyStrong)
             Box(Modifier.padding(vertical = 6.dp)) { ProgressTrack(if (r.totalBytes > 0) used.toFloat() / r.totalBytes else 0f, height = 5.dp) }
         }
         LazyColumn(verticalArrangement = Arrangement.spacedBy(6.dp), modifier = Modifier.heightIn(max = 340.dp)) {
